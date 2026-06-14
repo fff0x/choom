@@ -16,10 +16,12 @@
         "aarch64-darwin"
       ];
       forAllSystems = nixpkgs.lib.genAttrs systems;
-      pkgsFor = system: import nixpkgs {
-        inherit system;
-        overlays = [ self.overlays.default ];
-      };
+      pkgsFor =
+        system:
+        import nixpkgs {
+          inherit system;
+          overlays = [ self.overlays.default ];
+        };
     in
     {
       # Reusable overlay so other flakes (e.g. the fr0st system flake) get pkgs.choom.

@@ -1,6 +1,10 @@
 .venv/
 __pycache__/
 *.pyc
+# nix
+result
+result-*
+.direnv/
 # runtime state
 host_key
 host_key.pub
