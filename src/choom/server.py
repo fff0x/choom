@@ -27,6 +27,11 @@ from . import protocol as P
 from .recorder import Recorder, gc as record_gc
 
 
+def log(msg: str) -> None:
+    """Operational log line (goes to stdout / pod logs). No secrets."""
+    print(f"{time.strftime('%H:%M:%S')} [choom] {msg}", flush=True)
+
+
 # ---------------------------------------------------------------------------
 # pyte screen -> ANSI (for repaint on join / resize)
 # ---------------------------------------------------------------------------
@@ -122,8 +127,9 @@ class Participant:
 # ---------------------------------------------------------------------------
 class Session:
     def __init__(self, app, owner_key: str, cols: int, rows: int,
-                 record: bool = False):
+                 record: bool = False, sid: int = 0):
         self.app = app
+        self.sid = sid             # short id for logs (not a secret)
         self.owner_key = owner_key
         self.ro_token = secrets.token_urlsafe(P.TOKEN_NBYTES)
         self.rw_token = secrets.token_urlsafe(P.TOKEN_NBYTES)
@@ -186,12 +192,14 @@ class Session:
             pass
         self.recompute_size()
         self.send_control({"t": P.MSG_JOIN, "client": p.info()})
+        log(f"session #{self.sid} viewer #{pid} joined ({mode}/{transport} {ip})")
         return p
 
     def remove_participant(self, pid: int):
         if self.participants.pop(pid, None) is not None:
             self.recompute_size()
             self.send_control({"t": P.MSG_LEAVE, "id": pid})
+            log(f"session #{self.sid} viewer #{pid} left")
 
     def update_size(self, p: Participant, cols: int, rows: int):
         p.cols, p.rows = cols, rows
@@ -252,6 +260,7 @@ class Session:
         if self.state != "live":
             return
         self.state = "disconnected"
+        log(f"session #{self.sid} host disconnected (grace {int(P.GRACE_PERIOD)}s)")
         self.host_control = None
         self.host_data = None
         note = b"\r\n\x1b[33m[choom] host disconnected, waiting to reconnect...\x1b[0m\r\n"
@@ -268,8 +277,10 @@ class Session:
             self._grace.cancel()
             self._grace = None
         self.state = "live"
+        log(f"session #{self.sid} host reconnected")
 
     def expire(self):
+        log(f"session #{self.sid} closed")
         self.app.drop_session(self)
         for p in list(self.participants.values()):
             try:
@@ -301,6 +312,7 @@ class ChoomSSHServer(asyncssh.SSHServer):
             self.peer_ip = peer[0]
         # Per-IP connection rate limit (anti-DoS on a public relay).
         if not self.app.allow_connection(self.peer_ip):
+            log(f"rate-limited {self.peer_ip}")
             conn.close()
 
     # -- Auth ---------------------------------------------------------------
@@ -309,14 +321,14 @@ class ChoomSSHServer(asyncssh.SSHServer):
         if username in P.HOST_USERS:
             self.role = "host"
             return True  # public key required
-        # Viewer: the username is a token -> validate it immediately.
-        match = self.app.lookup_token(username)
-        if match is None:
-            self.role = None
-            return True   # unknown token -> auth required, which then fails
+        # Viewer: the username is a token. Accept the connection either way (a token
+        # is the only secret) and report unknown/expired tokens with a clear message
+        # in the session instead of a bare "connection closed".
         self.role = "viewer"
-        self.session, self.token_mode = match
-        return False      # valid token -> no further auth needed
+        match = self.app.lookup_token(username)
+        if match is not None:
+            self.session, self.token_mode = match
+        return False      # token-as-username -> no further SSH auth needed
 
     def password_auth_supported(self):
         return False
@@ -442,7 +454,10 @@ class ChoomSession(asyncssh.SSHServerSession):
     def _start_viewer(self):
         sess = self.server.session
         if sess is None:
-            self.chan.write(b"\x1b[31m[choom] unknown or expired session.\x1b[0m\r\n")
+            log(f"viewer rejected: unknown/expired token (ip {self.server.peer_ip})")
+            self.chan.write(
+                b"\x1b[31m[choom] unknown or expired session.\x1b[0m\r\n"
+                b"The host may have ended it; ask for a fresh link.\r\n")
             self.chan.exit(1)
             return
         if not sess.can_add_viewer():
@@ -553,6 +568,7 @@ class ChoomApp:
         self.web_url = getattr(args, "web_url", "") or ""  # advertised base URL
         self.sessions: dict[str, Session] = {}          # token -> Session
         self.by_reconnect: dict[str, Session] = {}
+        self._next_sid = 1                              # log id counter
 
         # Resource limits (public-relay hardening).
         self.max_sessions = getattr(args, "max_sessions", P.DEFAULT_MAX_SESSIONS)
@@ -598,11 +614,16 @@ class ChoomApp:
 
     def create_session(self, owner_key, cols, rows, record=False):
         if self.max_sessions and self.session_count() >= self.max_sessions:
+            log("session rejected: server at capacity")
             return None                      # global capacity reached
-        sess = Session(self, owner_key, cols, rows, record=record)
+        sid = self._next_sid
+        self._next_sid += 1
+        sess = Session(self, owner_key, cols, rows, record=record, sid=sid)
         self.sessions[sess.ro_token] = sess
         self.sessions[sess.rw_token] = sess
         self.by_reconnect[sess.reconnect_id] = sess
+        log(f"session #{sid} created ({cols}x{rows}"
+            + (", recording" if sess.recorder else "") + ")")
         return sess
 
     def resume_session(self, reconnect_id, owner_key):

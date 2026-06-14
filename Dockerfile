@@ -34,7 +34,7 @@ FROM alpine:3.22.4
 
 ARG CAT=choom
 ARG APP=relay
-ARG APP_VERSION=0.3.1
+ARG APP_VERSION=0.3.2
 ARG APP_DESCRIPTION="choom — minimal SSH terminal sharing relay"
 # ------------------
 

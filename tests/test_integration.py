@@ -4,7 +4,6 @@
 import asyncio
 
 import asyncssh
-import pytest
 
 from harness import capture, viewer_capture, _size_while_viewer
 
@@ -39,10 +38,11 @@ def test_percent_passes_through_verbatim(shared):
     assert "PCT[100%done]OK" in out
 
 
-def test_unknown_token_rejected(shared):
+def test_unknown_token_shows_message(shared):
+    # An unknown/expired token connects but gets a clear message (not a bare close).
     relay, host = shared
-    with pytest.raises(asyncssh.Error):
-        capture(relay.ssh_port, "totally-invalid-token", duration=0.5)
+    out = capture(relay.ssh_port, "totally-invalid-token", duration=1.0)
+    assert "unknown or expired session" in out
 
 
 def test_forwarding_denied_for_viewer(shared):

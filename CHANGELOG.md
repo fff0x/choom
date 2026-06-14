@@ -4,6 +4,22 @@ All notable changes to choom are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project uses
 [semantic versioning](https://semver.org/).
 
+## [0.3.2] - 2026-06-14
+
+### Added
+
+- **Operational logging**: the relay now logs session create/close, host
+  connect/disconnect/reconnect, viewer join/leave, rejected (unknown/expired)
+  tokens, and rate-limit drops — so operators can see activity in the pod logs.
+  No secrets are logged (sessions get a short numeric id).
+
+### Fixed
+
+- **Unknown/expired token UX**: connecting with a stale token now shows
+  "unknown or expired session — ask for a fresh link" instead of a bare
+  "Shared connection closed". (The relay itself was fine; the silent close just
+  looked like a bug when a viewer's `choom host` had already ended.)
+
 ## [0.3.1] - 2026-06-14
 
 ### Changed
