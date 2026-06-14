@@ -1,0 +1,3 @@
+asyncssh>=2.20
+pyte>=0.8
+aiohttp>=3.9

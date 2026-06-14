@@ -1,0 +1,10 @@
+.venv/
+__pycache__/
+*.pyc
+# runtime state
+host_key
+host_key.pub
+authorized_keys
+recordings/
+*.cast
+.mate_session.json

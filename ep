@@ -1,0 +1,77 @@
+#!/usr/bin/env sh
+# shellcheck shell=sh disable=SC2086
+# Version: 0.0.1
+
+set -e
+
+umask 077
+
+# --- CONFIGURATION ----------------------------------------------------------------
+# - CHOOM_DATA            - Data directory (host key, authorized_keys, recordings)
+#                           [default: /choom/data]. The Ed25519 host key is
+#                           generated on first start and persisted here.
+# - CHOOM_HOSTNAME        - Public FQDN advertised to clients in the share links (-H)
+#                           e.g. choom.example.com
+# - CHOOM_PORT_LISTEN     - Port the relay listens on (-p) [default: 2200]
+# - CHOOM_PORT_ADVERTISE  - Port advertised in the links (-q) [default: PORT_LISTEN]
+# - CHOOM_WEB             - Web module bind spec (-w), e.g. ':8080' or 'host:8080'.
+#                           Empty disables the web view [default: ':8080']
+# - CHOOM_WEB_URL         - Public base URL advertised for the web view (-W),
+#                           e.g. https://choom.example (overrides http://host:port)
+# - CHOOM_RECORD          - asciicast recording (-r): a directory, or '1'/'true' for
+#                           ${CHOOM_DATA}/recordings. Empty disables it [default: off]
+# - CHOOM_NO_DEFAULT_KEY  - '1' to NOT trust the built-in default key (private server)
+# - CHOOM_AUTHORIZED_KEYS - authorized_keys path (-a) [default: ${CHOOM_DATA}/authorized_keys]
+# - CHOOM_HOST_KEY        - host key path (-k)        [default: ${CHOOM_DATA}/host_key]
+# ----------------------------------------------------------------------------------
+
+CHOOM_DATA="${CHOOM_DATA:-/choom/data}"
+CHOOM_PORT_LISTEN="${CHOOM_PORT_LISTEN:-2200}"
+CHOOM_PORT_ADVERTISE="${CHOOM_PORT_ADVERTISE:-${CHOOM_PORT_LISTEN}}"
+# Bind the web view to all interfaces (':8080' would bind localhost only).
+CHOOM_WEB="${CHOOM_WEB-0.0.0.0:8080}"
+CHOOM_AUTHORIZED_KEYS="${CHOOM_AUTHORIZED_KEYS:-${CHOOM_DATA}/authorized_keys}"
+CHOOM_HOST_KEY="${CHOOM_HOST_KEY:-${CHOOM_DATA}/host_key}"
+
+CHOOM_BIN="${CHOOM_BIN:-/opt/venv/bin/choom}"
+
+log() {
+	printf '%s %s\n' "$(date '+%H:%M:%S')" "$*" >&2
+}
+
+main() {
+	mkdir -p "${CHOOM_DATA}"
+
+	set -- server \
+		-p "${CHOOM_PORT_LISTEN}" \
+		-q "${CHOOM_PORT_ADVERTISE}" \
+		-k "${CHOOM_HOST_KEY}" \
+		-a "${CHOOM_AUTHORIZED_KEYS}"
+
+	if [ -n "${CHOOM_HOSTNAME:-}" ]; then
+		set -- "$@" -H "${CHOOM_HOSTNAME}"
+	fi
+
+	if [ -n "${CHOOM_WEB}" ]; then
+		set -- "$@" -w "${CHOOM_WEB}"
+	fi
+
+	if [ -n "${CHOOM_WEB_URL:-}" ]; then
+		set -- "$@" -W "${CHOOM_WEB_URL}"
+	fi
+
+	case "${CHOOM_RECORD:-}" in
+		'') : ;;
+		1 | true | TRUE | yes) set -- "$@" -r "${CHOOM_DATA}/recordings" ;;
+		*) set -- "$@" -r "${CHOOM_RECORD}" ;;
+	esac
+
+	if [ "${CHOOM_NO_DEFAULT_KEY:-0}" = "1" ]; then
+		set -- "$@" --no-default-key
+	fi
+
+	log "Starting choom relay (listen ${CHOOM_PORT_LISTEN}, advertise ${CHOOM_PORT_ADVERTISE}, host ${CHOOM_HOSTNAME:-<default>})..."
+	exec "${CHOOM_BIN}" "$@"
+}
+
+main "$@"

@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="referrer" content="no-referrer">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>choom &mdash; shared terminal (read-only)</title>
+<link rel="stylesheet" href="/static/xterm.css">
+<style>
+  html, body { margin: 0; height: 100%; background: #000; color: #ccc;
+               font-family: monospace; }
+  #bar { padding: 4px 8px; background: #111; font-size: 13px;
+         border-bottom: 1px solid #333; }
+  #bar .ro { color: #fa0; }
+  #term { height: calc(100% - 28px); }
+</style>
+</head>
+<body>
+  <div id="bar"><span class="ro">&#9679; READ-ONLY</span>
+    &nbsp;&mdash;&nbsp; choom shared terminal
+    &nbsp;&middot;&nbsp; <a id="cast" href="#" style="color:#6cf">download recording</a>
+    &nbsp;&middot;&nbsp; <span id="status">connecting&hellip;</span></div>
+  <div id="term"></div>
+  <script src="/static/xterm.js"></script>
+  <script>
+    // Token from the path /s/<token> -- no cookies, no ambient authority.
+    var parts = location.pathname.split('/');
+    var token = parts[2] || '';
+    document.getElementById('cast').href = '/s/' + token + '/cast';
+
+    var term = new Terminal({ convertEol: false, scrollback: 5000,
+                              cursorBlink: false, fontFamily: 'monospace' });
+    term.open(document.getElementById('term'));
+
+    // Read-only: any keyboard input in the browser is discarded.
+    term.attachCustomKeyEventHandler(function () { return false; });
+
+    var statusEl = document.getElementById('status');
+    var proto = location.protocol === 'https:' ? 'wss' : 'ws';
+    var ws = new WebSocket(proto + '://' + location.host + '/s/' + token + '/stream');
+    ws.binaryType = 'arraybuffer';
+    ws.onopen = function () { statusEl.textContent = 'live'; };
+    ws.onmessage = function (ev) { term.write(new Uint8Array(ev.data)); };
+    ws.onclose = function () { statusEl.textContent = 'disconnected'; };
+    ws.onerror = function () { statusEl.textContent = 'error'; };
+  </script>
+</body>
+</html>

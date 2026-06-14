@@ -1,0 +1,15 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+*.egg-info/
+tests/
+deploy/
+.git/
+.gitignore
+# runtime state that must never land in the image
+host_key
+host_key.pub
+authorized_keys
+recordings/
+*.cast
