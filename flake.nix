@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 {
-  description = "choom — tmate without tmux: minimal SSH terminal sharing relay";
+  description = "choom — minimal SSH terminal sharing relay";
 
   inputs = {
     nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";

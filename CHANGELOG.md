@@ -4,6 +4,21 @@ All notable changes to choom are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project uses
 [semantic versioning](https://semver.org/).
 
+## [0.3.1] - 2026-06-14
+
+### Changed
+
+- Dropped the "tmate without tmux" phrasing for "minimal SSH terminal sharing relay";
+  README now references [tmate](https://github.com/tmate-io/tmate) as prior art.
+- Security wording corrected: a relay operator can **read and inject** into sessions
+  (no E2E); the landing page and docs now say so plainly.
+- `justfile` replaced by a `Taskfile.yml` (go-task); removed the unused
+  `requirements.txt`.
+
+### Added
+
+- `man/choom.1` man page; `docs/RUST-EVAL.md` (assessment of a Rust port).
+
 ## [0.3.0] - 2026-06-14
 
 ### Added

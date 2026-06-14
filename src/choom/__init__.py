@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""choom -- tmate ohne tmux: minimaler SSH-Terminal-Sharing-Relay.
+"""choom -- minimal SSH terminal sharing relay.
 
-choom: Neo-Afro-American slang for a friend (Cyberpunk 2077). Choomba/Choomba.
+choom: Neo-Afro-American slang for a friend (Cyberpunk 2077). Choomba/Choombatta.
 """
 
-__version__ = "0.3.0"
+__version__ = "0.3.1"

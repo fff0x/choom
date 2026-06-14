@@ -12,7 +12,7 @@
 }:
 buildPythonApplication {
   pname = "choom";
-  version = "0.3.0";
+  version = "0.3.1";
   pyproject = true;
 
   inherit src;
@@ -39,7 +39,7 @@ buildPythonApplication {
   ];
 
   meta = {
-    description = "tmate without tmux: minimal SSH terminal sharing relay";
+    description = "Minimal SSH terminal sharing relay";
     homepage = "https://this-is-fine.io";
     license = lib.licenses.gpl3Plus;
     mainProgram = "choom";

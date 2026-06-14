@@ -12,7 +12,7 @@ import sys
 
 from . import __version__
 
-_USAGE = """choom {ver} -- tmate without tmux
+_USAGE = """choom {ver} -- minimal SSH terminal sharing relay
 
 usage: choom <command> [options]
 

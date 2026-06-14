@@ -1,15 +1,15 @@
 # choom
 
-`choom` = Cyberpunk-2077-Slang for **friend**: A lean reimplementation of the tmate
-sharing core in Python (~1k LOC). A host shares its local shell through a central
-SSH relay; viewers connect with **stock `ssh`** over a read-only or read-write
-link. Optionally: a read-only browser view and asciicast recording.
-
-No tmux fork, no `libssh`/`msgpack`, no jailing — the server only relays bytes and
-never runs foreign code.
+A **minimal SSH terminal sharing relay** in Python (~1k LOC). A host shares its
+local shell through a central SSH relay; viewers connect with **stock `ssh`** over a
+read-only or read-write link. Optionally: a read-only browser view and asciicast
+recording. The server only relays bytes and never runs foreign code (no jailing).
 
 > _choom_ (also _choomba_/_choombatta_): Neo-Afro-American slang for a friend or
 > family member — Cyberpunk 2077.
+
+Prior art / heavier alternative: [**tmate**](https://github.com/tmate-io/tmate)
+(a tmux fork). choom keeps only the sharing core and adds none of tmux.
 
 ## Architecture
 
@@ -162,32 +162,32 @@ On NixOS use the flake's `nixosModules.default` (`services.choom-relay`).
 
 ## Security
 
-See **[SECURITY.md](SECURITY.md)** for the full threat model and review. In short:
-
+- **No end-to-end encryption — trust the operator.** The relay handles sessions in
+  cleartext, so its operator can both read everything **and inject keystrokes** into
+  the host shell. The RO/RW tokens restrict *other viewers*, not the operator. Only
+  host on a relay you trust; run a private relay for anything sensitive.
 - **Host auth via public key**; viewer auth solely via the token (unknown token →
-  auth failure).
+  auth failure). Tokens are 128-bit and unguessable (no session hijacking).
 - **An RW link = full shell access as the host user.** Share it deliberately; RO
-  is the default case.
-- For **all** viewers: TCP/Unix/X11 forwarding and `exec`/subsystem are denied →
-  the server cannot be abused as a pivot.
-- Web: auth only via token-in-URL (no cookies → CSWSH/CSRF defused),
-  `Referrer-Policy: no-referrer`, local assets only, WS strictly output-only.
-- Recordings are **opt-in**, created with `0600`, and may contain secrets
-  (passwords/keys shown on screen) — use sparingly.
-- **No end-to-end:** the relay sees cleartext. Intended for self-hosting with a
-  trusted operator; put a TLS reverse proxy in front of the web port.
-- **Built-in default key:** the client ships with a private key (`default_id`)
-  that the public server trusts by default, so anyone can host a session (like
-  the public tmate service). Opt out with `--no-default-key` on both sides and use
-  your own `authorized_keys` for a private/controlled server. The session tokens,
-  not the host key, are what protect viewing access.
+  is the default case. RO viewers cannot break out: input dropped, forwarding and
+  `exec`/subsystem denied for all viewers, web is structurally output-only.
+- **Hardening:** per-IP connection rate limit, global session cap, per-session
+  viewer cap (all tunable); recordings are opt-in, `0600`, with age/size GC.
+- **Built-in default key:** the public relay trusts a bundled key, so anyone can
+  host a session. Opt out with `--no-default-key` + your own `authorized_keys` for a
+  private relay; put a TLS reverse proxy in front of the web port.
 
 ## Tests
 
 ```sh
 .venv/bin/pip install -e '.[test]'
-.venv/bin/python -m pytest          # 45 tests
+.venv/bin/python -m pytest          # 49 tests
 ```
+
+With [direnv](https://direnv.net/) the flake devShell loads automatically (`.envrc`),
+and a [Taskfile](https://taskfile.dev) wraps the common jobs:
+`task setup | test | build | run -- host | image | binary | fmt`.
+A man page is in [`man/choom.1`](man/choom.1).
 
 The suite (`tests/`) covers:
 

@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Shared constants and the control-frame schema for choom.
 
-choom = "tmate without tmux": a host shares its local shell through a central
-SSH relay; viewers connect with a plain `ssh <token>@server`.
+A host shares its local shell through a central SSH relay; viewers connect with a
+plain `ssh <token>@server`.
 
 Two transport paths between the host client and the server (both over a single
 asyncssh connection, distinguished by the SSH "command"):

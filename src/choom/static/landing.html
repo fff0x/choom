@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="referrer" content="no-referrer">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>choom &mdash; tmate without tmux</title>
+<title>choom &mdash; SSH terminal sharing</title>
 <style>
   :root { color-scheme: dark; }
   html, body { margin: 0; background: #0b0b0b; color: #ddd;
@@ -27,8 +27,8 @@
 <body>
 <main>
   <h1>Welcome, Choomba.</h1>
-  <p class="sub"><b style="color:#fa0">choom</b> &mdash; tmate without tmux. Share your
-     terminal over SSH, read-only or read-write.</p>
+  <p class="sub"><b style="color:#fa0">choom</b> &mdash; minimal SSH terminal sharing
+     relay. Share your terminal over SSH, read-only or read-write.</p>
 
   <p>A host shares its local shell through this relay; viewers connect with a plain
      <code>ssh</code> &mdash; no client needed. An optional read-only browser view
@@ -36,13 +36,15 @@
      only forwards bytes.</p>
 
   <div class="warn">
-    <b>&#9888; Public relay.</b> This server trusts a built-in default key, so
-    <b>anyone</b> with the standard client can start a session here. The relay sees
-    your session in <b>cleartext</b> (no end-to-end encryption) and may
-    <b>record</b> sessions. Don't share secrets you wouldn't show the operator, and
-    treat a <b>read-write</b> link as handing over a shell. For anything sensitive,
-    run your own private relay (<code>--no-default-key</code> + your own
-    <code>authorized_keys</code>).
+    <b>&#9888; Public relay &mdash; trust the operator.</b> This server trusts a
+    built-in default key, so <b>anyone</b> with the standard client can start a
+    session here. There is <b>no end-to-end encryption</b>: the relay handles your
+    session in cleartext, so its operator can both <b>read everything</b> and
+    <b>inject keystrokes</b> into your shell (the relay forwards input, so it can
+    also originate it) &mdash; and may <b>record</b> the session. The read-only /
+    read-write tokens only restrict <i>other viewers</i>, not the operator. Only host
+    on a relay you trust; for anything sensitive run your own private relay
+    (<code>--no-default-key</code> + your own <code>authorized_keys</code>).
   </div>
 
   <h2>Use it</h2>
