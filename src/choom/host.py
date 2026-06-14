@@ -13,6 +13,7 @@ import argparse
 import asyncio
 import fcntl
 import os
+import re
 import signal
 import struct
 import sys
@@ -22,6 +23,16 @@ import tty
 import asyncssh
 
 from . import protocol as P
+
+# Terminal Device-Attributes replies (e.g. ESC[?62;52;c, ESC[>1;95;0c). A terminal
+# auto-sends these in answer to an app's DA query; in a byte relay they can arrive
+# after the app already exited and then show up at the shell prompt as garbage.
+# They are never something a human types, so strip them from input to the shell.
+_DA_REPLY = re.compile(rb"\x1b\[[?>][0-9;]*c")
+
+
+def strip_terminal_replies(data: bytes) -> bytes:
+    return _DA_REPLY.sub(b"", data)
 
 
 def set_winsize(fd: int, cols: int, rows: int):
@@ -97,7 +108,7 @@ class Host:
         except OSError:
             return
         if data:
-            os.write(self.master, data)    # host types itself
+            os.write(self.master, strip_terminal_replies(data))  # host types itself
 
     def _on_winch(self):
         cols, rows = term_size()
@@ -159,8 +170,8 @@ class Host:
         pa = "" if port == 22 else f" -p {port}"
         lines = [
             "",
-            "\x1b[1;33mWelcome, Choomba.\x1b[0m your shell is now shared.",
-            "  Share a link below; viewers connect with plain ssh.",
+            "\x1b[1;33mWelcome, Choomba, your shell is now shared!\x1b[0m",
+            "Share a link below; viewers connect with their ssh client.",
             "",
             f"  Read-only:  ssh{pa} {f.get('ro')}@{host}",
             f"  \x1b[33mRead-write: ssh{pa} {f.get('rw')}@{host}\x1b[0m  (full shell access!)",
@@ -170,7 +181,9 @@ class Host:
         if f.get("fp"):
             lines.append(f"  server key: {f.get('fp')}")
         lines.append("")
-        os.write(1, ("\r\n".join(lines) + "\r\n").encode())
+        # Leading "\r" forces column 0 even if the shell prompt left the cursor
+        # mid-line (the terminal is in raw mode here).
+        os.write(1, ("\r" + "\r\n".join(lines) + "\r\n").encode())
 
     # -- run a single connection --------------------------------------------
     async def _serve(self, conn):
@@ -210,7 +223,7 @@ class Host:
                 data = await self.dproc.stdout.read(65536)
                 if not data:
                     break
-                os.write(self.master, data)  # keystrokes from RW viewers
+                os.write(self.master, strip_terminal_replies(data))  # RW viewer keys
 
         data_task = asyncio.ensure_future(pump_data_in())
         closed = asyncio.ensure_future(conn.wait_closed())

@@ -4,6 +4,23 @@ All notable changes to choom are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project uses
 [semantic versioning](https://semver.org/).
 
+## [0.3.3] - 2026-06-14
+
+### Fixed
+
+- **Terminal artifacts**: device-attributes replies (e.g. `ESC[?62;52;c`) from a
+  viewer's or the host's terminal are stripped from shell input, so they no longer
+  land at the prompt as `62;52;c` garbage (seen around starting/exiting vim).
+- **Host banner**: corrected wording ("Welcome, Choomba, your shell is now shared!"
+  / "viewers connect with their ssh client.") and a leading `\r` so it always starts
+  at column 0.
+
+### Changed
+
+- Server log lines now include the host's source IP on session create.
+- Removed `SECURITY.md` (its content lives in the README and on the landing page);
+  moved `choom.example.yaml` to `docs/config.yaml`.
+
 ## [0.3.2] - 2026-06-14
 
 ### Added
@@ -58,9 +75,9 @@ All notable changes to choom are documented here. The format follows
 
 ### Added
 
-- **Public-relay hardening** (see [SECURITY.md](SECURITY.md)): per-IP connection
-  rate limiting (`--rate-limit`), global session cap (`--max-sessions`), and a
-  per-session viewer cap (`--max-viewers`).
+- **Public-relay hardening**: per-IP connection rate limiting (`--rate-limit`),
+  global session cap (`--max-sessions`), and a per-session viewer cap
+  (`--max-viewers`).
 - **Recording retention / GC**: prune `.cast` files by age (`--record-max-age-days`,
   default 7) and total size (`--record-max-mb`, default 500), oldest first.
 - **Landing page** at `/` (info, usage, and a public-relay warning) — the terminal
@@ -70,7 +87,8 @@ All notable changes to choom are documented here. The format follows
   `tools/build-binaries.sh` / `tools/binary.Dockerfile` you can build a portable
   single-file binary (Nuitka, default) and drop it there.
 - `-W/--web-url` to advertise a public web URL (e.g. behind a TLS gateway).
-- `SECURITY.md` (threat model + review) and this changelog.
+- A threat-model / security review (in the README and on the landing page) and
+  this changelog.
 
 ### Fixed
 

@@ -506,6 +506,9 @@ class ChoomSession(asyncssh.SSHServerSession):
                 return
             sess.host_control = self
             srv.session = self.session = sess
+            log(f"session #{sess.sid} created from {srv.peer_ip} "
+                f"({sess.host_cols}x{sess.host_rows}"
+                + (", recording" if sess.recorder else "") + ")")
             self._send_ready(sess)
         elif t == P.MSG_RESUME:
             sess = self.app.resume_session(f.get("id"), srv.owner_key)
@@ -622,8 +625,6 @@ class ChoomApp:
         self.sessions[sess.ro_token] = sess
         self.sessions[sess.rw_token] = sess
         self.by_reconnect[sess.reconnect_id] = sess
-        log(f"session #{sid} created ({cols}x{rows}"
-            + (", recording" if sess.recorder else "") + ")")
         return sess
 
     def resume_session(self, reconnect_id, owner_key):

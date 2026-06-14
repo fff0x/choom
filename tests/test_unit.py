@@ -113,6 +113,18 @@ def test_drop_session_removes_all_tokens():
     assert app.resume_session(sess.reconnect_id, b"o") is None
 
 
+def test_strip_terminal_replies():
+    from choom.host import strip_terminal_replies as s
+    # DA replies are removed wherever they appear
+    assert s(b"abc\x1b[?62;52;cdef") == b"abcdef"
+    assert s(b"\x1b[>1;95;0c") == b""
+    # ordinary input and real keys are preserved
+    assert s(b"hello world") == b"hello world"
+    assert s(b"\x1b") == b"\x1b"          # lone ESC (the Escape key)
+    assert s(b"\x1b[A") == b"\x1b[A"      # arrow key
+    assert s(b"\x1b[3~") == b"\x1b[3~"    # delete key
+
+
 # --- bundled default key ---------------------------------------------------
 def test_client_keys_default_is_bundled():
     import os

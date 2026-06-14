@@ -4,4 +4,4 @@
 choom: Neo-Afro-American slang for a friend (Cyberpunk 2077). Choomba/Choombatta.
 """
 
-__version__ = "0.3.2"
+__version__ = "0.3.3"

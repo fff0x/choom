@@ -39,7 +39,7 @@ in
       };
       description = ''
         choom server settings, written to a YAML config (`choom server -c`).
-        Keys are the long option names; see `choom.example.yaml`. Paths default to
+        Keys are the long option names; see `docs/config.yaml`. Paths default to
         the service state directory (/var/lib/choom).
       '';
     };

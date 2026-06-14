@@ -116,7 +116,7 @@ choom host -s your.server.example -p 2200 -i ~/.ssh/id_ed25519 --no-default-key
   `asciinema play` or asciinema-player, downloadable at `/s/<ro-token>/cast`,
   with age/size retention GC.
 - **Public-relay hardening**: per-IP connection rate limiting, global session cap,
-  per-session viewer cap (all tunable). See [SECURITY.md](SECURITY.md).
+  per-session viewer cap (all tunable) — see the Security section below.
 
 ## Standalone binary
 
@@ -157,7 +157,7 @@ pruned by age (`--record-max-age-days`, default 7) and total size
 ## Configuration file
 
 All `choom server|host|clients` options can come from a YAML file (CLI flags still
-win): `choom server -c choom.yaml`. See [`choom.example.yaml`](choom.example.yaml).
+win): `choom server -c choom.yaml`. See [`docs/config.yaml`](docs/config.yaml).
 On NixOS use the flake's `nixosModules.default` (`services.choom-relay`).
 
 ## Security
