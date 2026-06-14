@@ -12,7 +12,7 @@
 }:
 buildPythonApplication {
   pname = "choom";
-  version = "0.3.3";
+  version = "1.0.0";
   pyproject = true;
 
   inherit src;

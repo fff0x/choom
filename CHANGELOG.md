@@ -4,6 +4,26 @@ All notable changes to choom are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project uses
 [semantic versioning](https://semver.org/).
 
+## [1.0.0] - 2026-06-14
+
+First stable release. The Python implementation is feature-complete, tested
+(50 tests), documented, and deployed.
+
+### Added
+
+- Documentation set under `docs/` (architecture, deployment, config) and a
+  README rework with a choom-vs-tmate comparison.
+- A plan for a future Rust port (`docs/RUST-REWRITE-PLAN.md`, targeting a 2.0).
+
+### Summary of capabilities
+
+- SSH relay with read-only/read-write tokens; viewers use stock `ssh`.
+- Server-side pyte screen model (correct snapshot/repaint), resize negotiation,
+  reconnect, read-only web view, asciicast recording (opt-in, GC'd).
+- Public-relay hardening (rate limit, session/viewer caps), connection logging.
+- Bundled default key, YAML config, Nix flake + NixOS module, container image,
+  Kubernetes manifests, and a portable single-file binary.
+
 ## [0.3.3] - 2026-06-14
 
 ### Fixed
