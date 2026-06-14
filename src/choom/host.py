@@ -159,7 +159,9 @@ class Host:
         pa = "" if port == 22 else f" -p {port}"
         lines = [
             "",
-            "\x1b[1m[choom] session ready\x1b[0m",
+            "\x1b[1;33mWelcome, Choomba.\x1b[0m your shell is now shared.",
+            "  Share a link below; viewers connect with plain ssh.",
+            "",
             f"  Read-only:  ssh{pa} {f.get('ro')}@{host}",
             f"  \x1b[33mRead-write: ssh{pa} {f.get('rw')}@{host}\x1b[0m  (full shell access!)",
         ]
@@ -177,7 +179,8 @@ class Host:
         cols, rows = term_size()
         if self.reconnect_id is None:
             self.cproc.stdin.write(P.encode_frame(
-                {"t": P.MSG_HELLO, "cols": cols, "rows": rows}))
+                {"t": P.MSG_HELLO, "cols": cols, "rows": rows,
+                 "record": bool(getattr(self.args, "record", False))}))
         else:
             self.cproc.stdin.write(P.encode_frame(
                 {"t": P.MSG_RESUME, "id": self.reconnect_id,
@@ -255,14 +258,18 @@ class Host:
 
 def main():
     ap = argparse.ArgumentParser(description="choom host -- share your shell")
+    ap.add_argument("-c", "--config", default="",
+                    help="YAML config file (CLI flags override it)")
     ap.add_argument("-s", "--server", default=P.DEFAULT_SERVER)
     ap.add_argument("-p", "--port", type=int, default=P.DEFAULT_SSH_PORT)
     ap.add_argument("-i", "--identity", action="append",
                     help="private SSH key (may be given multiple times)")
     ap.add_argument("--no-default-key", action="store_true",
                     help="do NOT use the built-in default key")
+    ap.add_argument("--record", action="store_true",
+                    help="ask the relay to record this session (asciicast)")
     ap.add_argument("command", nargs="?", help="run this instead of $SHELL")
-    args = ap.parse_args()
+    args = P.apply_config(ap, ap.parse_args())
     if not sys.stdin.isatty():
         print("choom host: stdin is not a TTY", file=sys.stderr)
         sys.exit(1)

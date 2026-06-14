@@ -62,6 +62,7 @@ class Relay:
         self.ssh_port = free_port()
         self.web_port = free_port()
         self.record_dir = os.path.join(workdir, "rec")
+        self.downloads = os.path.join(workdir, "downloads")
         self.host_key = os.path.join(workdir, "host_key")
         self.authorized = os.path.join(workdir, "authorized_keys")
         self.owner_id = os.path.join(workdir, "owner")
@@ -74,9 +75,11 @@ class Relay:
         with open(self.authorized, "wb") as f:
             f.write(owner.export_public_key() + b"\n")
             f.write(intruder.export_public_key() + b"\n")
+        os.makedirs(self.downloads, exist_ok=True)
         cmd = [CHOOM, "server", "-p", str(self.ssh_port), "-H", "localhost",
                "-k", self.host_key, "-a", self.authorized,
-               "-w", f":{self.web_port}", "-r", self.record_dir]
+               "-w", f":{self.web_port}", "-r", self.record_dir,
+               "--downloads", self.downloads]
         if self.no_default_key:
             cmd.append("--no-default-key")
         self.proc = subprocess.Popen(
@@ -101,9 +104,11 @@ class Host:
     identity=None    -> no `-i`, i.e. use the bundled default key.
     """
 
-    def __init__(self, relay: Relay, identity: str | None = "owner"):
+    def __init__(self, relay: Relay, identity: str | None = "owner",
+                 record: bool = False):
         self.relay = relay
         self.identity = relay.owner_id if identity == "owner" else identity
+        self.record = record
         self.master = -1
         self.proc = None
         self.tokens = {}
@@ -119,6 +124,8 @@ class Host:
         cmd = [CHOOM, "host", "-s", "localhost", "-p", str(self.relay.ssh_port)]
         if self.identity:
             cmd += ["-i", self.identity]
+        if self.record:
+            cmd += ["--record"]
         self.proc = subprocess.Popen(
             cmd, stdin=slave, stdout=slave, stderr=slave, env=env,
             start_new_session=True)

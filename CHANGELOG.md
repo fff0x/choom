@@ -1,0 +1,60 @@
+# Changelog
+
+All notable changes to choom are documented here. The format follows
+[Keep a Changelog](https://keepachangelog.com/), and the project uses
+[semantic versioning](https://semver.org/).
+
+## [0.3.0] - 2026-06-14
+
+### Added
+
+- **Per-session recording opt-in**: `choom host --record` asks the relay to record
+  that session; the server's `-r` only enables storage. `--record-all` forces all.
+- **YAML config**: `choom server|host|clients -c file.yaml` (CLI flags still win);
+  see `choom.example.yaml`.
+- **NixOS module** `nixosModules.default` (`services.choom-relay`) — runs the relay
+  as a hardened systemd service, configured via Nix.
+- **Dev tooling**: `.envrc` (direnv `use flake`) and a `justfile`
+  (`setup`/`test`/`build`/`run`/`image`/`binary`/`fmt`).
+- Flavor: the host greets with "Welcome, Choomba." and the landing page leads with it.
+- README sections on recordings (asciicast) and the config file.
+
+### Changed
+
+- The public relay now records only sessions whose host opted in (better privacy).
+
+## [0.2.0] - 2026-06-14
+
+### Added
+
+- **Public-relay hardening** (see [SECURITY.md](SECURITY.md)): per-IP connection
+  rate limiting (`--rate-limit`), global session cap (`--max-sessions`), and a
+  per-session viewer cap (`--max-viewers`).
+- **Recording retention / GC**: prune `.cast` files by age (`--record-max-age-days`,
+  default 7) and total size (`--record-max-mb`, default 500), oldest first.
+- **Landing page** at `/` (info, usage, and a public-relay warning) — the terminal
+  viewer now lives only at `/s/<token>`.
+- **Downloads** served at `/download/` from a directory (`--downloads`,
+  `CHOOM_DOWNLOADS`); empty state shows install instructions. With
+  `tools/build-binaries.sh` / `tools/binary.Dockerfile` you can build a portable
+  single-file binary (Nuitka, default) and drop it there.
+- `-W/--web-url` to advertise a public web URL (e.g. behind a TLS gateway).
+- `SECURITY.md` (threat model + review) and this changelog.
+
+### Fixed
+
+- **Web view sizing**: the browser now receives the host's terminal size and scales
+  xterm.js to fit the window, so wide sessions are no longer cut off.
+- **Cast download**: the download link is hidden unless a recording exists; the
+  deployment enables recording so `/s/<token>/cast` works.
+
+### Notes
+
+- A literal `%` in output is transmitted verbatim (verified by test). A trailing
+  `%` some shells show is zsh's `PROMPT_EOL_MARK`, not a choom bug.
+
+## [0.1.0] - 2026-06-14
+
+- Initial release: SSH relay, host client, read-only web view (xterm.js),
+  asciicast recording, reconnect, resize negotiation, bundled default key,
+  Nix flake, container image, and Kubernetes deployment.

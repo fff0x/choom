@@ -13,3 +13,5 @@ host_key.pub
 authorized_keys
 recordings/
 *.cast
+downloads/
+tools/

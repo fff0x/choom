@@ -29,6 +29,13 @@
         choom = final.python3Packages.callPackage ./nix/package.nix { src = self; };
       };
 
+      # NixOS module to run the relay as a hardened systemd service. Brings the
+      # overlay so `pkgs.choom` is available without extra wiring.
+      nixosModules.default = {
+        imports = [ ./nix/nixos-module.nix ];
+        nixpkgs.overlays = [ self.overlays.default ];
+      };
+
       packages = forAllSystems (
         system:
         let

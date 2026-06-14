@@ -34,7 +34,7 @@ FROM alpine:3.22.4
 
 ARG CAT=choom
 ARG APP=relay
-ARG APP_VERSION=0.1.0
+ARG APP_VERSION=0.3.0
 ARG APP_DESCRIPTION="choom — tmate without tmux: minimal SSH terminal sharing relay"
 # ------------------
 

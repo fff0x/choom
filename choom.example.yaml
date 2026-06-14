@@ -1,0 +1,30 @@
+# Example choom config. Pass with `choom server -c choom.yaml` (or host/clients).
+# Keys are the long option names (dashes or underscores). CLI flags override these.
+
+# --- server ---
+host: choom.example.com          # FQDN advertised in the share links (-H)
+listen-port: 2200                # -p
+advertise-port: 2200             # -q
+web: "0.0.0.0:8080"              # -w  (empty disables the web view)
+web-url: https://choom.example.com   # -W  public URL behind a TLS gateway
+no-default-key: false            # true on a private relay
+authorized-keys: authorized_keys
+host-key: host_key
+
+# recording (hosts opt in with `choom host --record`)
+record: ""                       # set to a directory to enable recording storage
+record-all: false                # true to record every session regardless
+record-max-age-days: 7
+record-max-mb: 500
+
+# resource limits
+max-sessions: 200
+max-viewers: 50
+rate-limit: 60                   # new connections / source IP / minute (0 = off)
+
+downloads: ""                    # directory of prebuilt binaries served at /download/
+
+# --- host (choom host -c choom.yaml) ---
+# server: choom.this-is-fine.io
+# port: 2200
+# record: false                  # ask the relay to record this session

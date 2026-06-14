@@ -12,6 +12,7 @@ construction). The rw_token does NOT open the web view.
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 
 from aiohttp import web
@@ -35,6 +36,11 @@ def _ro_session(app, token):
     if match is None or match[1] != "ro":
         return None
     return match[0]
+
+
+async def _landing(request):
+    # `/` with no token: info + usage + public-relay warning, not the viewer.
+    return web.FileResponse(os.path.join(STATIC, "landing.html"))
 
 
 async def _index(request):
@@ -61,6 +67,9 @@ async def _stream(request):
     if sess is None:
         raise web.HTTPNotFound()
 
+    if not sess.can_add_viewer():
+        raise web.HTTPServiceUnavailable(text="session is full")
+
     ws = web.WebSocketResponse()
     await ws.prepare(request)
 
@@ -72,13 +81,32 @@ async def _stream(request):
         except asyncio.QueueFull:
             pass  # slow client -> drop frames instead of blocking
 
+    # Terminal-size updates (queued as dicts; raw output is queued as bytes) let the
+    # browser size xterm.js to the host's grid so nothing is cut off.
+    def on_resize(cols: int, rows: int):
+        try:
+            queue.put_nowait({"t": "size", "cols": cols, "rows": rows})
+        except asyncio.QueueFull:
+            pass
+
+    # One-time init: current size + whether a downloadable recording exists.
+    await ws.send_str(json.dumps({
+        "t": "init",
+        "cols": sess.neg_cols,
+        "rows": sess.neg_rows,
+        "rec": sess.recorder is not None,
+    }))
+
     ip = request.remote or "?"
-    p = sess.add_participant("ro", "web", ip, 0, 0, send)
+    p = sess.add_participant("ro", "web", ip, 0, 0, send, on_resize=on_resize)
 
     async def pump():
         while True:
-            data = await queue.get()
-            await ws.send_bytes(data)
+            item = await queue.get()
+            if isinstance(item, (bytes, bytearray)):
+                await ws.send_bytes(item)
+            else:
+                await ws.send_str(json.dumps(item))
 
     sender = asyncio.ensure_future(pump())
     try:
@@ -93,11 +121,71 @@ async def _stream(request):
     return ws
 
 
+_INSTALL_HINT = (
+    "<p>No prebuilt binaries are published here. Install via Nix or pip:</p>"
+    "<pre>nix run git+https://seed.this-is-fine.io/"
+    "zc53mExb6ttoNQXMMZh9xxn5n2HH.git -- host\n"
+    "pip install choom &amp;&amp; choom host</pre>"
+)
+
+
+def _dl_page(body):
+    return web.Response(
+        text=("<!DOCTYPE html><meta charset=utf-8><title>choom downloads</title>"
+              "<meta name=referrer content=no-referrer>"
+              "<body style='background:#0b0b0b;color:#ddd;font-family:monospace;"
+              "max-width:760px;margin:2rem auto;padding:0 1rem'>"
+              "<h1 style='color:#fa0'>choom &mdash; downloads</h1>" + body +
+              "<p><a style=color:#6cf href='/'>&larr; back</a></p></body>"),
+        content_type="text/html")
+
+
+def _downloads_list(app):
+    d = getattr(app, "downloads_dir", "")
+    if not d or not os.path.isdir(d):
+        return []
+    out = []
+    for n in sorted(os.listdir(d)):
+        p = os.path.join(d, n)
+        if n.startswith(".") or not os.path.isfile(p):
+            continue
+        out.append((n, os.path.getsize(p)))
+    return out
+
+
+async def _download_index(request):
+    files = _downloads_list(request.app["choom"])
+    if not files:
+        return _dl_page(_INSTALL_HINT)
+    rows = "".join(
+        f"<li><a style=color:#6cf href='/download/{n}'>{n}</a> "
+        f"<span style=color:#666>({sz // 1024} KiB)</span></li>"
+        for n, sz in files)
+    return _dl_page(f"<ul>{rows}</ul>" + _INSTALL_HINT)
+
+
+async def _download_file(request):
+    app = request.app["choom"]
+    d = getattr(app, "downloads_dir", "")
+    name = request.match_info["name"]
+    # No path traversal: only plain filenames from the downloads dir.
+    if not d or "/" in name or "\\" in name or name.startswith(".") or ".." in name:
+        raise web.HTTPNotFound()
+    path = os.path.join(d, name)
+    if not os.path.isfile(path):
+        raise web.HTTPNotFound()
+    return web.FileResponse(
+        path,
+        headers={"Content-Disposition": f'attachment; filename="{name}"'})
+
+
 async def start_web(choom_app, host: str, port: int):
     application = web.Application(middlewares=[_security_headers])
     application["choom"] = choom_app
     application.add_routes([
-        web.get("/", _index),
+        web.get("/", _landing),
+        web.get("/download/", _download_index),
+        web.get("/download/{name}", _download_file),
         web.get("/s/{token}", _index),
         web.get("/s/{token}/stream", _stream),
         web.get("/s/{token}/cast", _cast),

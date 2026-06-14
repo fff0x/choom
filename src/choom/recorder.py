@@ -53,3 +53,51 @@ class Recorder:
                 self._f.close()
             finally:
                 self._f = None
+
+
+def gc(directory: str, max_age_days: float = 0.0, max_mb: float = 0.0) -> int:
+    """Prune recordings: drop files older than max_age_days, then trim the total
+    size to max_mb (oldest first). Either limit is skipped when 0. Returns the
+    number of files removed."""
+    try:
+        names = [n for n in os.listdir(directory) if n.endswith(".cast")]
+    except OSError:
+        return 0
+    files = []
+    for n in names:
+        p = os.path.join(directory, n)
+        try:
+            st = os.stat(p)
+        except OSError:
+            continue
+        files.append((p, st.st_mtime, st.st_size))
+
+    removed = 0
+    now = time.time()
+    if max_age_days and max_age_days > 0:
+        cutoff = now - max_age_days * 86400.0
+        keep = []
+        for p, mtime, size in files:
+            if mtime < cutoff:
+                try:
+                    os.remove(p)
+                    removed += 1
+                except OSError:
+                    keep.append((p, mtime, size))
+            else:
+                keep.append((p, mtime, size))
+        files = keep
+
+    if max_mb and max_mb > 0:
+        cap = max_mb * 1024 * 1024
+        total = sum(s for _, _, s in files)
+        for p, _mtime, size in sorted(files, key=lambda f: f[1]):  # oldest first
+            if total <= cap:
+                break
+            try:
+                os.remove(p)
+                removed += 1
+                total -= size
+            except OSError:
+                pass
+    return removed

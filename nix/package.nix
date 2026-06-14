@@ -6,12 +6,13 @@
   asyncssh,
   pyte,
   aiohttp,
+  pyyaml,
   pytestCheckHook,
   src ? ../.,
 }:
 buildPythonApplication {
   pname = "choom";
-  version = "0.1.0";
+  version = "0.3.0";
   pyproject = true;
 
   inherit src;
@@ -22,6 +23,7 @@ buildPythonApplication {
     asyncssh
     pyte
     aiohttp
+    pyyaml
   ];
 
   # The integration/web/reconnect tests spawn PTYs, subprocesses and bind sockets,

@@ -17,8 +17,8 @@ def relay(tmp_path):
 
 @pytest.fixture
 def shared(relay):
-    """Relay + a host sharing a shell. Yields (relay, host)."""
-    h = Host(relay).start()
+    """Relay + a host sharing a shell (recording opted in). Yields (relay, host)."""
+    h = Host(relay, record=True).start()
     try:
         yield relay, h
     finally:

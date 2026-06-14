@@ -22,8 +22,9 @@ import time
 import asyncssh
 import pyte
 
+from . import __version__
 from . import protocol as P
-from .recorder import Recorder
+from .recorder import Recorder, gc as record_gc
 
 
 # ---------------------------------------------------------------------------
@@ -94,9 +95,10 @@ def render_screen(screen: pyte.Screen) -> bytes:
 # ---------------------------------------------------------------------------
 class Participant:
     __slots__ = ("id", "mode", "transport", "ip", "cols", "rows",
-                 "connected_at", "send")
+                 "connected_at", "send", "on_resize")
 
-    def __init__(self, pid, mode, transport, ip, cols, rows, send):
+    def __init__(self, pid, mode, transport, ip, cols, rows, send,
+                 on_resize=None):
         self.id = pid
         self.mode = mode            # "ro" | "rw"
         self.transport = transport  # "ssh" | "web"
@@ -105,6 +107,7 @@ class Participant:
         self.rows = rows
         self.connected_at = time.monotonic()
         self.send = send            # callable(bytes) -> None
+        self.on_resize = on_resize  # optional callable(cols, rows) -> None
 
     def info(self) -> dict:
         return {
@@ -118,7 +121,8 @@ class Participant:
 # Shared session
 # ---------------------------------------------------------------------------
 class Session:
-    def __init__(self, app, owner_key: str, cols: int, rows: int):
+    def __init__(self, app, owner_key: str, cols: int, rows: int,
+                 record: bool = False):
         self.app = app
         self.owner_key = owner_key
         self.ro_token = secrets.token_urlsafe(P.TOKEN_NBYTES)
@@ -138,8 +142,10 @@ class Session:
         self.state = "live"
         self._grace = None
 
+        # Record only when storage is configured AND the host opted in
+        # (choom host --record) or the operator forces it (--record-all).
         self.recorder = None
-        if app.record_dir:
+        if app.record_dir and (record or app.record_all):
             self.recorder = Recorder(app.record_dir, self.ro_token,
                                      self.neg_cols, self.neg_rows)
 
@@ -158,12 +164,22 @@ class Session:
             self.recorder.write_output(data)
 
     # -- viewers ------------------------------------------------------------
-    def add_participant(self, mode, transport, ip, cols, rows, send) -> Participant:
+    def can_add_viewer(self) -> bool:
+        cap = self.app.max_viewers
+        return not cap or len(self.participants) < cap
+
+    def add_participant(self, mode, transport, ip, cols, rows, send,
+                        on_resize=None) -> Participant:
         pid = self._next_pid
         self._next_pid += 1
-        p = Participant(pid, mode, transport, ip, cols, rows, send)
+        p = Participant(pid, mode, transport, ip, cols, rows, send, on_resize)
         self.participants[pid] = p
-        # repaint the current screen, then the live stream:
+        # tell the viewer the current size first, then repaint, then live stream:
+        if on_resize is not None:
+            try:
+                on_resize(self.neg_cols, self.neg_rows)
+            except Exception:
+                pass
         try:
             p.send(render_screen(self.screen))
         except Exception:
@@ -198,6 +214,11 @@ class Session:
             self.send_control({"t": P.MSG_RESIZE, "cols": cols, "rows": rows})
             repaint = render_screen(self.screen)
             for p in list(self.participants.values()):
+                if p.on_resize is not None:
+                    try:
+                        p.on_resize(cols, rows)
+                    except Exception:
+                        pass
                 try:
                     p.send(repaint)
                 except Exception:
@@ -278,6 +299,9 @@ class ChoomSSHServer(asyncssh.SSHServer):
         peer = conn.get_extra_info("peername")
         if peer:
             self.peer_ip = peer[0]
+        # Per-IP connection rate limit (anti-DoS on a public relay).
+        if not self.app.allow_connection(self.peer_ip):
+            conn.close()
 
     # -- Auth ---------------------------------------------------------------
     def begin_auth(self, username):
@@ -421,6 +445,10 @@ class ChoomSession(asyncssh.SSHServerSession):
             self.chan.write(b"\x1b[31m[choom] unknown or expired session.\x1b[0m\r\n")
             self.chan.exit(1)
             return
+        if not sess.can_add_viewer():
+            self.chan.write(b"\x1b[31m[choom] session is full.\x1b[0m\r\n")
+            self.chan.exit(1)
+            return
         self.session = sess
         ip = self.server.peer_ip
         cols = self._vw_cols or sess.neg_cols
@@ -454,7 +482,13 @@ class ChoomSession(asyncssh.SSHServerSession):
         srv = self.server
         if t == P.MSG_HELLO:
             sess = self.app.create_session(srv.owner_key,
-                                           f.get("cols", 80), f.get("rows", 24))
+                                           f.get("cols", 80), f.get("rows", 24),
+                                           record=bool(f.get("record", False)))
+            if sess is None:
+                self.chan.write(P.encode_frame(
+                    {"t": P.MSG_ERROR, "msg": "server at capacity, try later"}))
+                self.chan.exit(1)
+                return
             sess.host_control = self
             srv.session = self.session = sess
             self._send_ready(sess)
@@ -512,11 +546,39 @@ class ChoomApp:
         self.advertise_host = args.host
         self.advertise_port = args.advertise_port or args.listen_port
         self.record_dir = args.record
+        self.record_all = getattr(args, "record_all", False)
+        self.downloads_dir = getattr(args, "downloads", "") or ""
         self.web_host = None
         self.web_port = None
         self.web_url = getattr(args, "web_url", "") or ""  # advertised base URL
         self.sessions: dict[str, Session] = {}          # token -> Session
         self.by_reconnect: dict[str, Session] = {}
+
+        # Resource limits (public-relay hardening).
+        self.max_sessions = getattr(args, "max_sessions", P.DEFAULT_MAX_SESSIONS)
+        self.max_viewers = getattr(args, "max_viewers", P.DEFAULT_MAX_VIEWERS)
+        self._rate_per_min = getattr(args, "rate_limit", P.DEFAULT_RATE_PER_MIN)
+        self._buckets: dict[str, tuple[float, float]] = {}  # ip -> (tokens, ts)
+
+    def allow_connection(self, ip: str) -> bool:
+        """Per-IP token bucket: throttles new connections from one source."""
+        if self._rate_per_min <= 0:
+            return True
+        now = time.monotonic()
+        cap = float(self._rate_per_min)
+        tokens, ts = self._buckets.get(ip, (cap, now))
+        tokens = min(cap, tokens + (now - ts) * (cap / 60.0))
+        if tokens < 1.0:
+            self._buckets[ip] = (tokens, now)
+            return False
+        self._buckets[ip] = (tokens - 1.0, now)
+        if len(self._buckets) > 10000:        # bound the table
+            self._buckets = {ip: self._buckets[ip]}
+        return True
+
+    def session_count(self) -> int:
+        # sessions dict has two tokens per session; count unique objects.
+        return len(set(self.sessions.values()))
 
     @staticmethod
     def key_blob(key) -> bytes:
@@ -534,8 +596,10 @@ class ChoomApp:
             return sess, "rw"
         return None
 
-    def create_session(self, owner_key, cols, rows) -> Session:
-        sess = Session(self, owner_key, cols, rows)
+    def create_session(self, owner_key, cols, rows, record=False):
+        if self.max_sessions and self.session_count() >= self.max_sessions:
+            return None                      # global capacity reached
+        sess = Session(self, owner_key, cols, rows, record=record)
         self.sessions[sess.ro_token] = sess
         self.sessions[sess.rw_token] = sess
         self.by_reconnect[sess.reconnect_id] = sess
@@ -632,31 +696,61 @@ async def amain(args):
         app.web_port = web_port
         web_runner = await webmod.start_web(app, web_host, web_port)
 
-    if not authorized:
-        print(f"[choom] WARNING: {args.authorized_keys} empty/missing and the "
-              f"default key is off -- no host may create sessions.", file=sys.stderr)
-
     await asyncssh.create_server(
         lambda: ChoomSSHServer(app), args.bind, args.listen_port,
         server_host_keys=[host_key],
     )
-    print(f"[choom] ssh relay on {args.bind or '0.0.0.0'}:{args.listen_port}")
-    print(f"[choom] host key fingerprint: {fingerprint}")
-    if trusts_default:
-        print("[choom] NOTE: trusting the built-in default key -- anyone with the "
-              "standard client can create sessions.\n"
-              "        For private servers: --no-default-key + your own authorized_keys.",
-              file=sys.stderr)
-    if web_host:
-        print(f"[choom] web (read-only) on http://{web_host}:{web_port}/")
+
+    # --- startup banner -------------------------------------------------------
     if args.record:
         os.makedirs(args.record, exist_ok=True)
-        print(f"[choom] recording enabled -> {args.record}/")
+
+    def row(label, value):
+        print(f"  \x1b[36m{label:<12}\x1b[0m {value}")
+
+    listen = f"{args.bind or '0.0.0.0'}:{args.listen_port}"
+    print(f"\n  \x1b[1;33mchoom relay {__version__}\x1b[0m")
+    print("  " + "─" * 52)
+    row("ssh", f"{listen}  (advertise {app.advertise_host}:{app.advertise_port})")
+    if web_host:
+        row("web (RO)", f"http://{web_host}:{web_port}/")
+    row("host key", fingerprint)
+    row("limits", f"sessions={app.max_sessions or '∞'} "
+                  f"viewers/session={app.max_viewers or '∞'} "
+                  f"rate={app._rate_per_min or 'off'}/min")
+    if args.record:
+        ret = []
+        if args.record_max_age_days:
+            ret.append(f"{args.record_max_age_days:g}d")
+        if args.record_max_mb:
+            ret.append(f"{args.record_max_mb:g}MB")
+        row("recording", args.record + ("  (max " + " / ".join(ret) + ")" if ret else ""))
+    if trusts_default:
+        row("default key", "\x1b[33mTRUSTED — anyone can host "
+                           "(use --no-default-key for a private relay)\x1b[0m")
+    if not authorized:
+        row("WARNING", "\x1b[31mno authorized keys and default key off — "
+                       "no host can connect\x1b[0m")
+    print()
+
+    if args.record:
+        if args.record_max_age_days or args.record_max_mb:
+            async def _gc_loop():
+                while True:
+                    try:
+                        record_gc(args.record, args.record_max_age_days,
+                                  args.record_max_mb)
+                    except Exception:
+                        pass
+                    await asyncio.sleep(3600)
+            asyncio.ensure_future(_gc_loop())
     await asyncio.Event().wait()  # keep running
 
 
 def main():
     ap = argparse.ArgumentParser(description="choom -- SSH terminal sharing relay")
+    ap.add_argument("-c", "--config", default="",
+                    help="YAML config file (CLI flags override it)")
     ap.add_argument("--bind", default="", help="bind address (default: all)")
     ap.add_argument("-p", "--listen-port", type=int, default=P.DEFAULT_SSH_PORT)
     ap.add_argument("-H", "--host", default=P.DEFAULT_SERVER,
@@ -673,8 +767,26 @@ def main():
                     help="public base URL advertised for the web view, e.g. "
                          "https://choom.example (overrides the http://host:port form)")
     ap.add_argument("-r", "--record", default="",
-                    help="directory for asciicast recordings (opt-in)")
-    args = ap.parse_args()
+                    help="directory enabling asciicast recordings; hosts opt in "
+                         "per session with `choom host --record`")
+    ap.add_argument("--record-all", action="store_true",
+                    help="record every session, even without the host opting in")
+    ap.add_argument("--downloads", default="",
+                    help="directory of prebuilt binaries to serve at /download/")
+    # Resource limits (public-relay hardening).
+    ap.add_argument("--max-sessions", type=int, default=P.DEFAULT_MAX_SESSIONS,
+                    help="global cap on concurrent sessions (0 = unlimited)")
+    ap.add_argument("--max-viewers", type=int, default=P.DEFAULT_MAX_VIEWERS,
+                    help="cap on viewers per session (0 = unlimited)")
+    ap.add_argument("--rate-limit", type=int, default=P.DEFAULT_RATE_PER_MIN,
+                    help="new connections per source IP per minute (0 = off)")
+    # Recording retention (only relevant with -r).
+    ap.add_argument("--record-max-age-days", type=float,
+                    default=P.DEFAULT_RECORD_MAX_AGE_DAYS,
+                    help="delete recordings older than this (0 = keep)")
+    ap.add_argument("--record-max-mb", type=float, default=P.DEFAULT_RECORD_MAX_MB,
+                    help="cap total recordings size, oldest first (0 = no cap)")
+    args = P.apply_config(ap, ap.parse_args())
     try:
         asyncio.run(amain(args))
     except (KeyboardInterrupt, asyncssh.Error) as e:

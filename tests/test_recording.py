@@ -5,12 +5,25 @@ import asyncio
 import json
 import os
 import stat
+import time
 
-from harness import _size_while_viewer  # noqa: F401  (Resize ausloesen)
+from harness import Host, _size_while_viewer  # noqa: F401  (Resize ausloesen)
 
 
 def _cast_path(relay, host):
     return os.path.join(relay.record_dir, host.tokens["ro"] + ".cast")
+
+
+def test_no_recording_without_host_optin(relay):
+    # The relay enables recording storage, but a host that does NOT pass --record
+    # must not be recorded (per-session opt-in / privacy).
+    h = Host(relay, record=False).start()
+    try:
+        h.run_cmd("echo NOPE")
+        time.sleep(0.3)
+        assert not os.path.exists(_cast_path(relay, h))
+    finally:
+        h.stop()
 
 
 def test_cast_file_perms_and_header(shared):

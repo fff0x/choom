@@ -110,11 +110,59 @@ choom host -s your.server.example -p 2200 -i ~/.ssh/id_ed25519 --no-default-key
 - **Correct repaint** on join/resize via the pyte screen model.
 - **Reconnect**: brief host network drops are survived (grace period, tokens stay
   valid, bound to the owner key).
-- **Web (output only)**: live browser view, structurally without an input path.
+- **Web (output only)**: live browser view that scales the host's terminal grid to
+  fit the window; a landing page at `/` and prebuilt binaries at `/download/`.
 - **asciicast recording**: one `.cast` file per session, playable with
-  `asciinema play` or asciinema-player, downloadable at `/s/<ro-token>/cast`.
+  `asciinema play` or asciinema-player, downloadable at `/s/<ro-token>/cast`,
+  with age/size retention GC.
+- **Public-relay hardening**: per-IP connection rate limiting, global session cap,
+  per-session viewer cap (all tunable). See [SECURITY.md](SECURITY.md).
+
+## Standalone binary
+
+Build a portable single-file `choom` (Nuitka, compiled) and serve it at `/download/`:
+
+```sh
+./tools/build-binaries.sh                 # -> downloads/choom-linux-<arch>
+# then drop downloads/* onto the relay's CHOOM_DOWNLOADS volume
+```
+
+`MODE=nix ./tools/build-binaries.sh` uses a self-extracting Nix bundle instead (no
+extra build tools, larger). Binaries are arch- and libc-specific; build per target.
+
+## Recordings (asciicast)
+
+The relay can record a session in [asciicast v2](https://docs.asciinema.org/manual/asciicast/v2/)
+format. Recording is **opt-in per session**:
+
+1. The relay must enable recording storage (`choom server -r <dir>`, or
+   `CHOOM_RECORD=1`).
+2. The host opts in: `choom host --record`.
+
+Then download and play it:
+
+```sh
+# the read-only web page shows a "download recording" link, or fetch it directly:
+curl -L https://choom.example.com/s/<ro-token>/cast -o session.cast
+
+asciinema play session.cast          # play locally
+asciinema upload session.cast        # or share on asciinema.org
+```
+
+The `.cast` is also playable in a browser with
+[asciinema-player](https://docs.asciinema.org/manual/player/). Old recordings are
+pruned by age (`--record-max-age-days`, default 7) and total size
+(`--record-max-mb`, default 500). Use `--record-all` to record every session.
+
+## Configuration file
+
+All `choom server|host|clients` options can come from a YAML file (CLI flags still
+win): `choom server -c choom.yaml`. See [`choom.example.yaml`](choom.example.yaml).
+On NixOS use the flake's `nixosModules.default` (`services.choom-relay`).
 
 ## Security
+
+See **[SECURITY.md](SECURITY.md)** for the full threat model and review. In short:
 
 - **Host auth via public key**; viewer auth solely via the token (unknown token →
   auth failure).
@@ -138,7 +186,7 @@ choom host -s your.server.example -p 2200 -i ~/.ssh/id_ed25519 --no-default-key
 
 ```sh
 .venv/bin/pip install -e '.[test]'
-.venv/bin/python -m pytest          # 35 tests
+.venv/bin/python -m pytest          # 45 tests
 ```
 
 The suite (`tests/`) covers:

@@ -30,6 +30,15 @@ def test_ro_viewer_input_is_dropped(shared):
     assert "RO_MUST_NOT_RUN" not in out
 
 
+def test_percent_passes_through_verbatim(shared):
+    # A literal '%' must reach viewers unchanged (no printf-style mangling).
+    # (A trailing '%' some shells show is zsh's PROMPT_EOL_MARK, not a choom bug.)
+    relay, host = shared
+    host.run_cmd("printf 'PCT[%s]OK\\n' '100%done'")
+    out = capture(relay.ssh_port, host.tokens["ro"])
+    assert "PCT[100%done]OK" in out
+
+
 def test_unknown_token_rejected(shared):
     relay, host = shared
     with pytest.raises(asyncssh.Error):

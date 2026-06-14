@@ -12,3 +12,4 @@ authorized_keys
 recordings/
 *.cast
 .mate_session.json
+downloads/

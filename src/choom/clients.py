@@ -59,13 +59,15 @@ async def amain(args) -> int:
 
 def main():
     ap = argparse.ArgumentParser(description="choom clients -- list active viewers")
+    ap.add_argument("-c", "--config", default="",
+                    help="YAML config file (CLI flags override it)")
     ap.add_argument("-s", "--server", default=P.DEFAULT_SERVER)
     ap.add_argument("-p", "--port", type=int, default=P.DEFAULT_SSH_PORT)
     ap.add_argument("-i", "--identity", action="append",
                     help="private SSH key (may be given multiple times)")
     ap.add_argument("--no-default-key", action="store_true",
                     help="do NOT use the built-in default key")
-    args = ap.parse_args()
+    args = P.apply_config(ap, ap.parse_args())
     try:
         sys.exit(asyncio.run(amain(args)))
     except asyncssh.Error as e:

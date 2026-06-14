@@ -42,8 +42,16 @@ DEFAULT_SERVER = "choom.this-is-fine.io"  # public default relay
 DEFAULT_SSH_PORT = 2200
 DEFAULT_WEB_PORT = 8080
 GRACE_PERIOD = 60.0      # seconds a session lives on after the host drops
-SCROLLBACK_LINES = 2000  # pyte history depth
 MAX_FRAME_BYTES = 64 * 1024  # upper bound for a single control line
+
+# --- Resource limits (public-relay hardening) ---------------------------------
+DEFAULT_MAX_SESSIONS = 200      # global cap on concurrent sessions
+DEFAULT_MAX_VIEWERS = 50        # cap on viewers per session
+DEFAULT_RATE_PER_MIN = 60       # new connections per source IP per minute
+
+# --- Recording retention ------------------------------------------------------
+DEFAULT_RECORD_MAX_AGE_DAYS = 7    # delete .cast files older than this
+DEFAULT_RECORD_MAX_MB = 500        # cap total recordings size (oldest first)
 
 # Built-in default keypair: the standard client ships with the private key
 # (file `default_id` inside the package), and the server trusts the matching
@@ -88,6 +96,23 @@ def client_keys(identity, use_default: bool = True):
         if d:
             return [d]
     return None
+
+
+def apply_config(parser, args):
+    """If ``args.config`` is set, load that YAML file and re-parse with its values
+    as defaults so explicit CLI flags still win (CLI > config > built-in defaults).
+    YAML keys use the long option name (dashes or underscores), e.g. ``max-viewers``.
+    """
+    path = getattr(args, "config", "")
+    if not path:
+        return args
+    import yaml
+    with open(path) as f:
+        cfg = yaml.safe_load(f) or {}
+    if not isinstance(cfg, dict):
+        raise SystemExit(f"choom: config {path} is not a mapping")
+    parser.set_defaults(**{k.replace("-", "_"): v for k, v in cfg.items()})
+    return parser.parse_args()
 
 
 def clamp_size(cols: int, rows: int) -> tuple[int, int]:

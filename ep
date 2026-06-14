@@ -23,6 +23,12 @@ umask 077
 # - CHOOM_NO_DEFAULT_KEY  - '1' to NOT trust the built-in default key (private server)
 # - CHOOM_AUTHORIZED_KEYS - authorized_keys path (-a) [default: ${CHOOM_DATA}/authorized_keys]
 # - CHOOM_HOST_KEY        - host key path (-k)        [default: ${CHOOM_DATA}/host_key]
+# Resource limits / retention (optional; the server defaults apply when unset):
+# - CHOOM_MAX_SESSIONS    - global cap on concurrent sessions  [default: 200]
+# - CHOOM_MAX_VIEWERS     - cap on viewers per session         [default: 50]
+# - CHOOM_RATE_LIMIT      - new connections / source IP / min  [default: 60]
+# - CHOOM_RECORD_MAX_AGE_DAYS - prune recordings older than    [default: 7]
+# - CHOOM_RECORD_MAX_MB   - cap total recordings size (MB)     [default: 500]
 # ----------------------------------------------------------------------------------
 
 CHOOM_DATA="${CHOOM_DATA:-/choom/data}"
@@ -66,9 +72,23 @@ main() {
 		*) set -- "$@" -r "${CHOOM_RECORD}" ;;
 	esac
 
+	if [ "${CHOOM_RECORD_ALL:-0}" = "1" ]; then
+		set -- "$@" --record-all
+	fi
+
+	# Serve prebuilt binaries dropped here (e.g. via PVC) at /download/.
+	set -- "$@" --downloads "${CHOOM_DOWNLOADS:-${CHOOM_DATA}/downloads}"
+
 	if [ "${CHOOM_NO_DEFAULT_KEY:-0}" = "1" ]; then
 		set -- "$@" --no-default-key
 	fi
+
+	# Optional resource limits / recording retention (else the server defaults apply).
+	[ -n "${CHOOM_MAX_SESSIONS:-}" ] && set -- "$@" --max-sessions "${CHOOM_MAX_SESSIONS}"
+	[ -n "${CHOOM_MAX_VIEWERS:-}" ] && set -- "$@" --max-viewers "${CHOOM_MAX_VIEWERS}"
+	[ -n "${CHOOM_RATE_LIMIT:-}" ] && set -- "$@" --rate-limit "${CHOOM_RATE_LIMIT}"
+	[ -n "${CHOOM_RECORD_MAX_AGE_DAYS:-}" ] && set -- "$@" --record-max-age-days "${CHOOM_RECORD_MAX_AGE_DAYS}"
+	[ -n "${CHOOM_RECORD_MAX_MB:-}" ] && set -- "$@" --record-max-mb "${CHOOM_RECORD_MAX_MB}"
 
 	log "Starting choom relay (listen ${CHOOM_PORT_LISTEN}, advertise ${CHOOM_PORT_ADVERTISE}, host ${CHOOM_HOSTNAME:-<default>})..."
 	exec "${CHOOM_BIN}" "$@"

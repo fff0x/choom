@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "choom"
-version = "0.1.0"
+version = "0.3.0"
 description = "tmate without tmux -- minimal SSH terminal sharing relay"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -14,6 +14,7 @@ dependencies = [
     "asyncssh>=2.20",
     "pyte>=0.8",
     "aiohttp>=3.9",
+    "pyyaml>=6",
 ]
 
 [project.optional-dependencies]

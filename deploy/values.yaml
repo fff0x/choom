@@ -55,9 +55,11 @@ env:
   # your own authorized_keys mounted into /choom/data/authorized_keys.
   # - name: CHOOM_NO_DEFAULT_KEY
   #   value: "1"
-  # Opt-in session recording (asciicast) under /choom/data/recordings:
-  # - name: CHOOM_RECORD
-  #   value: "1"
+  # Session recording (asciicast) under /choom/data/recordings, downloadable at
+  # /s/<ro-token>/cast. NOTE: records EVERY session and may capture on-screen
+  # secrets; set to "0" (or remove) to disable.
+  - name: CHOOM_RECORD
+    value: "1"
 
 # Host key (and optionally authorized_keys / recordings) live here and must
 # persist so the advertised server fingerprint stays stable across restarts.
