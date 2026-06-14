@@ -46,7 +46,7 @@ LABEL \
   org.opencontainers.image.version="${APP_VERSION}" \
   org.opencontainers.image.description="$APP_DESCRIPTION" \
   org.opencontainers.image.licenses="GPL-3.0-or-later" \
-  org.opencontainers.image.source="https://this-is-fine.io"
+  org.opencontainers.image.source="https://radicle.network/nodes/seed.this-is-fine.io/rad:zc53mExb6ttoNQXMMZh9xxn5n2HH" 
 
 ##
 ## CONFIGURATION
@@ -102,9 +102,9 @@ USER "$APP"
 WORKDIR "/${CAT}"
 VOLUME [ "/${CAT}/data" ]
 ENV PATH="/opt/venv/bin:$PATH" \
-    CHOOM_DATA="/${CAT}/data" \
-    PYTHONUNBUFFERED="1" \
-    PYTHONDONTWRITEBYTECODE="1"
+  CHOOM_DATA="/${CAT}/data" \
+  PYTHONUNBUFFERED="1" \
+  PYTHONDONTWRITEBYTECODE="1"
 
 ##
 ## PORTS

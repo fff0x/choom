@@ -1,6 +1,6 @@
 # choom
 
-`choom` = Cyberpunk-2077-Slang for **Freund**: A lean reimplementation of the tmate
+`choom` = Cyberpunk-2077-Slang for **friend**: A lean reimplementation of the tmate
 sharing core in Python (~1k LOC). A host shares its local shell through a central
 SSH relay; viewers connect with **stock `ssh`** over a read-only or read-write
 link. Optionally: a read-only browser view and asciicast recording.
