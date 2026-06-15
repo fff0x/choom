@@ -163,6 +163,11 @@ pub enum Control {
     Clients(Vec<Client>),
     /// A fatal error for this session.
     Error { msg: String },
+    // host -> relay (appended at the end to keep postcard variant indices stable for
+    // older peers).
+    /// The host's shell exited — end the session now (no reconnect grace period), so
+    /// viewers detach immediately instead of hanging until the grace window lapses.
+    Bye,
 }
 
 /// Payload of [`Control::Ready`] — everything the host needs to print share links.

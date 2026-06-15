@@ -495,6 +495,7 @@ async fn host_loop(
     };
 
     // Shared relay loop: host output -> viewers; host control.
+    let mut session_over = false;
     while let Some(item) = source.next().await {
         let frame = match item {
             Ok(f) => f,
@@ -520,11 +521,29 @@ async fn host_loop(
                     .send(Frame::Control(Control::Clients(roster)))
                     .await;
             }
+            // The host's shell exited: end the session now so viewers detach immediately
+            // instead of hanging for the whole grace period.
+            Frame::Control(Control::Bye) => {
+                session_over = true;
+                break;
+            }
             _ => {}
         }
     }
 
-    // Host disconnected: keep the session alive for a grace period (reconnect window).
+    if session_over {
+        info!(sid = session.sid, ip = %ip, "host ended the session (shell exited)");
+        session.close();
+        app.remove_session(&session);
+        writer.abort();
+        return;
+    }
+
+    // Host disconnected unexpectedly: tell viewers a reconnect is in progress, then keep
+    // the session alive for a grace period (reconnect window).
+    let _ = session.output_tx.send(Arc::from(
+        &b"\r\n\x1b[33m[choom] host disconnected \xe2\x80\x94 waiting for reconnect\xe2\x80\xa6\x1b[0m\r\n"[..],
+    ));
     session.connected.store(false, Ordering::Relaxed);
     let grace_token = CancellationToken::new();
     *session.grace.lock().unwrap() = Some(grace_token.clone());

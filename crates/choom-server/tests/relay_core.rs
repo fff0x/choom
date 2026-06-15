@@ -243,6 +243,53 @@ async fn viewer_authenticates_with_none() {
     assert!(!res.success(), "unknown token must fail `none` authentication");
 }
 
+/// When the host's shell exits it sends `Control::Bye`; the relay must then detach
+/// viewers immediately (close their channels) rather than holding them for the whole
+/// reconnect grace period — otherwise a viewer's `ssh` hangs after the host quits.
+#[tokio::test]
+async fn host_bye_detaches_viewers_immediately() {
+    let host_key = PrivateKey::random(&mut rand::rng(), Algorithm::Ed25519).unwrap();
+    let addr = start_relay(vec![host_key.public_key().to_openssh().unwrap()]).await;
+
+    let host = connect_host(addr, host_key).await;
+    let host_chan = host.channel_open_session().await.unwrap();
+    let mut hframed = Framed::new(host_chan.into_stream(), FrameCodec);
+    hframed
+        .send(Frame::Control(Control::Hello { cols: 80, rows: 24 }))
+        .await
+        .unwrap();
+    let rw = match next_frame(&mut hframed).await {
+        Some(Frame::Control(Control::Ready(r))) => r.rw,
+        other => panic!("expected Ready, got {other:?}"),
+    };
+    hframed
+        .send(Frame::Output(b"hello-screen\r\n".to_vec()))
+        .await
+        .unwrap();
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    // A viewer attaches and reads the snapshot.
+    let (vh, ok) = auth(addr, &rw).await;
+    assert!(ok);
+    let (mut chan, _) = viewer_open_and_read(&vh, "hello-screen").await;
+
+    // The host's shell exits.
+    hframed.send(Frame::Control(Control::Bye)).await.unwrap();
+
+    // The viewer's channel must close promptly (well under the 60s grace period).
+    let closed = timeout(Duration::from_secs(5), async {
+        loop {
+            match chan.wait().await {
+                Some(ChannelMsg::Close) | Some(ChannelMsg::Eof) | None => break true,
+                Some(_) => continue,
+            }
+        }
+    })
+    .await
+    .unwrap_or(false);
+    assert!(closed, "viewer channel must close after host Bye");
+}
+
 #[tokio::test]
 async fn untrusted_host_key_is_rejected() {
     let trusted = PrivateKey::random(&mut rand::rng(), Algorithm::Ed25519).unwrap();

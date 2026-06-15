@@ -511,7 +511,7 @@ async fn run_host(cfg: HostConfig, hooks: Hooks) -> Result<()> {
         loop {
             tokio::select! {
                 n = pty_read.read(&mut pty_buf) => match n {
-                    Ok(0) | Err(_) => { writer.abort(); return Ok(()); }
+                    Ok(0) | Err(_) => { say_bye(&to_relay_tx).await; writer.abort(); return Ok(()); }
                     Ok(n) => {
                         let bytes = pty_buf[..n].to_vec();
                         if hooks.attach_terminal {
@@ -572,7 +572,7 @@ async fn run_host(cfg: HostConfig, hooks: Hooks) -> Result<()> {
                     to_relay_tx.send(Frame::Control(Control::HostSize { cols: size.0, rows: size.1 })).ok();
                 },
 
-                _ = shell_gone.cancelled() => { writer.abort(); return Ok(()); }
+                _ = shell_gone.cancelled() => { say_bye(&to_relay_tx).await; writer.abort(); return Ok(()); }
             }
         }
 
@@ -596,6 +596,14 @@ async fn run_host(cfg: HostConfig, hooks: Hooks) -> Result<()> {
         // Lost the relay before a session was ever established: give up.
         return Ok(());
     }
+}
+
+/// Tell the relay the shell has exited so it ends the session immediately (no reconnect
+/// grace period — viewers detach now), then pause briefly so the writer task can flush
+/// the frame before the caller aborts it.
+async fn say_bye(to_relay: &mpsc::UnboundedSender<Frame>) {
+    let _ = to_relay.send(Frame::Control(Control::Bye));
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 }
 
 /// Back off between connect attempts, but wake immediately if the shell exits meanwhile

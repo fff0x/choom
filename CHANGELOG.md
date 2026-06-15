@@ -8,8 +8,7 @@ Notable changes, newest first. [Keep a Changelog](https://keepachangelog.com/) /
 ### Fixed
 
 - **Share links**: the printed `ssh` command now includes `-p <port>` whenever the relay
-  isn't on port 22. Without it, `ssh <token>@host` hit port 22 — typically a *different*
-  sshd — which prompted for a password instead of attaching the session.
+  isn't on port 22.
 - **Tokens** never start with `-` anymore: such a token made `ssh <token>@host` parse the
   token as an option flag, breaking the share link.
 
@@ -25,6 +24,13 @@ Notable changes, newest first. [Keep a Changelog](https://keepachangelog.com/) /
   leaves the host looping `relay connection lost; reconnecting…` forever. Shell exit is
   now tracked by a dedicated watcher, and the reconnect path stops once the local shell
   is gone (there is nothing left to share).
+- **Viewers detach immediately when the host's shell exits.** The host now sends a `Bye`
+  control frame on shell exit, so the relay ends the session at once instead of holding
+  viewers for the full 60s reconnect grace period — a viewer's `ssh` no longer hangs
+  after the host quits.
+- **Viewers are told when the host disconnects**: a `[choom] host disconnected — waiting
+  for reconnect…` notice is shown while the relay waits out the grace window, instead of
+  a silently frozen screen.
 
 ### Notes
 
