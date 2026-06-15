@@ -105,12 +105,13 @@ async fn stream_session(socket: WebSocket, session: Arc<SessionShared>) {
     let (mut tx, mut client_rx) = socket.split();
     let start = Instant::now();
 
-    // asciinema-player's live WS driver wants a top-level {cols,rows} header and
-    // absolute-time events (not the v3 file format).
-    let header = asciicast::live_header_line(cols, rows);
-    let snap = asciicast::event_line(0.0, Code::Output, &String::from_utf8_lossy(&snapshot));
-    if tx.send(Message::text(header)).await.is_err() || tx.send(Message::text(snap)).await.is_err()
-    {
+    // asciinema-player's live WS driver wants a single "reset" message carrying the size,
+    // a stream clock, and the current screen as `init` — then absolute-time events. (We
+    // used to send a bare {cols,rows} header + the snapshot as a t=0 event, which the
+    // player treated as a finite recording: it played to the end and paused with a replay
+    // button instead of staying live.)
+    let reset = asciicast::live_reset_line(cols, rows, &String::from_utf8_lossy(&snapshot));
+    if tx.send(Message::text(reset)).await.is_err() {
         session.remove_viewer(id);
         return;
     }

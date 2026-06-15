@@ -87,16 +87,28 @@ async fn web_stream_emits_asciicast() {
         .await
         .expect("ws connect");
 
-    // First message is the asciinema-player live header (top-level cols/rows).
-    let header = next_text(&mut ws).await.expect("header");
-    let hv: serde_json::Value = serde_json::from_str(&header).expect("header json");
-    assert_eq!(
-        hv["cols"], 80,
-        "expected live {{cols,rows}} header, got {header}"
-    );
-    assert_eq!(hv["rows"], 24);
+    // Output produced *after* the viewer joined must arrive as a live event.
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    hframed
+        .send(Frame::Output(b"more-live-output\r\n".to_vec()))
+        .await
+        .unwrap();
 
-    // Subsequent messages are [t, "o", data] events; one carries the screen content.
+    // First message is the asciinema-player live "reset": top-level cols/rows, a numeric
+    // `time` (so the player sets its clock rather than guessing the epoch), and the
+    // current screen as `init` — so a joiner sees it immediately and the stream stays
+    // live (not a finite recording that ends + shows a replay button).
+    let reset = next_text(&mut ws).await.expect("reset");
+    let rv: serde_json::Value = serde_json::from_str(&reset).expect("reset json");
+    assert_eq!(rv["cols"], 80, "expected live {{cols,rows,...}} reset, got {reset}");
+    assert_eq!(rv["rows"], 24);
+    assert!(rv["time"].is_number(), "reset must carry a numeric stream clock");
+    assert!(
+        rv["init"].as_str().unwrap_or("").contains("web-marker-123"),
+        "reset `init` must carry the current screen snapshot"
+    );
+
+    // Live output then arrives as [t, "o", data] events.
     let mut found = false;
     let deadline = Instant::now() + Duration::from_secs(3);
     while Instant::now() < deadline {
@@ -104,16 +116,15 @@ async fn web_stream_emits_asciicast() {
             break;
         };
         let ev: serde_json::Value = serde_json::from_str(&text).expect("event json");
-        assert_eq!(ev[1], "o", "events must be output events");
-        if ev[2].as_str().unwrap_or("").contains("web-marker-123") {
+        if ev.is_array() {
+            assert_eq!(ev[1], "o", "events must be output events");
+        }
+        if ev[2].as_str().unwrap_or("").contains("more-live-output") {
             found = true;
             break;
         }
     }
-    assert!(
-        found,
-        "web stream must carry the screen content as an output event"
-    );
+    assert!(found, "live output must stream as [t,\"o\",data] events after the reset");
 }
 
 async fn next_text<S>(ws: &mut S) -> Option<String>

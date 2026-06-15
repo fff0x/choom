@@ -5,6 +5,15 @@ Notable changes, newest first. [Keep a Changelog](https://keepachangelog.com/) /
 
 ## [2.2.0] - 2026-06-15
 
+### Fixed
+
+- **Web live view stays live.** The stream now opens with a single asciinema-player
+  *reset* message (`{cols, rows, time, init}`) carrying the current screen as `init` and a
+  numeric clock, instead of a bare `{cols,rows}` header plus the snapshot as a `t=0` event.
+  The old shape made the player treat the stream as a finite recording — it played to the
+  end and showed a paused/replay state (black screen + play button, garbled on replay)
+  rather than a continuous live terminal.
+
 ### Changed
 
 - **Default relay port depends on the server**: `choom host` with no `-p` dials the public

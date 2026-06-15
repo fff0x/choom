@@ -51,11 +51,13 @@ pub fn header_line(cols: u16, rows: u16) -> String {
     s
 }
 
-/// Header for the **live** asciinema-player WebSocket driver. Its asciicast handler
-/// reads top-level `cols`/`rows` (not a versioned/`term`-nested header) and expects
-/// `[absolute_time, code, data]` events — so the live stream differs from the v3 file.
-pub fn live_header_line(cols: u16, rows: u16) -> String {
-    let mut s = json!({ "cols": cols, "rows": rows }).to_string();
+/// The live-stream **reset** message for the asciinema-player WebSocket driver: terminal
+/// size, an explicit stream clock (`time`,
+/// so the player sets its clock instead of guessing/"correcting the epoch"), and the
+/// current screen as `init` so a joiner sees it at once. This is the message
+/// asciinema-player's websocket driver consumes first to enter the playing/live state.
+pub fn live_reset_line(cols: u16, rows: u16, init: &str) -> String {
+    let mut s = json!({ "cols": cols, "rows": rows, "time": 0.0, "init": init }).to_string();
     s.push('\n');
     s
 }
