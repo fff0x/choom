@@ -3,6 +3,49 @@
 Notable changes, newest first. [Keep a Changelog](https://keepachangelog.com/) /
 [SemVer](https://semver.org/).
 
+## [2.3.0] - 2026-06-16
+
+### Added
+
+- **`choom view <token | token@host>`** — a convenience viewer that fills in the right
+  `-p <port>` and execs the real `ssh` binary, which also sidesteps shell wrappers like
+  kitty's `ssh` kitten. The token's own read-only/read-write grant decides the access
+  mode; stock `ssh <token>@host` keeps working unchanged.
+- **Read-only sessions** (`choom host --read-only`) — the relay issues only the read-only
+  link; the read-write token is never advertised and is mapped to read-only access, so
+  even a leaked rw token can only watch (a hard guarantee, not mere non-disclosure).
+- **Named sessions** (`choom host --name/-n`) — a human label shown on the host banner, in
+  the relay logs, and by `choom clients` (persisted in the session file).
+- **Live viewer status** — a transient join/leave notice with the current viewer count
+  when the host terminal is attached, an in-place status block in `--detach` mode, and
+  `choom clients --watch` which refreshes the roster like `watch(1)`.
+- **In-browser replay after a session ends** — the web viewer page probes the live stream
+  and, when the session is over, replays the recording (if one exists) in place instead of
+  going black.
+- **`GET /healthz`** on the web listener — `200` while serving, `503` once the relay is
+  draining (SIGTERM); usable as an HTTP readiness/liveness probe.
+
+### Changed
+
+- **`/metrics` moved off the public web port** onto its own operator-internal listener
+  (`--metrics-addr` / `CHOOM_METRICS_ADDR`, off by default; bind to loopback/a private
+  interface). It is no longer served on the `-w` web view. **Action:** scrapers must point
+  at the new listener.
+
+### Security
+
+- **Web file downloads stream from disk** (`/s/<token>/cast`, `/download/{file}`) instead
+  of being read whole into memory, and share a bounded concurrency pool — so the web view
+  can't be turned into a memory/bandwidth amplifier (a recording has no per-file size cap).
+- **Stored-XSS guard on the `/download` index**: filenames are HTML-escaped, and
+  `/download/{file}` names are whitelisted to `[A-Za-z0-9._-]` (also blocking path
+  traversal and `Content-Disposition` / CR-LF header injection).
+- **CSP tightened** with `object-src 'none'`, `base-uri 'none'`, `frame-ancestors 'none'`.
+- **Rate-limiter map bounded**: stale per-IP entries are swept so a churn of source IPs
+  can't grow it without limit (slow memory DoS).
+- Moving `/metrics` off the public web port also closes its unauthenticated exposure
+  there (see Changed).
+
 ## [2.2.0] - 2026-06-15
 
 ### Added
