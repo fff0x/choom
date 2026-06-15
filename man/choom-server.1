@@ -1,0 +1,90 @@
+.ie \n(.g .ds Aq \(aq
+.el .ds Aq '
+.TH choom-server 1  "choom-server " 
+.SH NAME
+choom\-server \- Run the central relay
+.SH SYNOPSIS
+\fBchoom\-server\fR [\fB\-c\fR|\fB\-\-config\fR] [\fB\-\-ssh\-addr\fR] [\fB\-H\fR|\fB\-\-host\fR] [\fB\-p\fR|\fB\-\-port\fR] [\fB\-w\fR|\fB\-\-web\fR] [\fB\-W\fR|\fB\-\-web\-url\fR] [\fB\-\-max\-sessions\fR] [\fB\-\-max\-viewers\fR] [\fB\-\-rate\-limit\fR] [\fB\-a\fR|\fB\-\-authorized\-keys\fR] [\fB\-\-no\-default\-key\fR] [\fB\-r\fR|\fB\-\-record\-dir\fR] [\fB\-\-record\-all\fR] [\fB\-\-record\-max\-age\-days\fR] [\fB\-\-record\-max\-mb\fR] [\fB\-\-downloads\fR] [\fB\-h\fR|\fB\-\-help\fR] 
+.SH DESCRIPTION
+Run the central relay
+.SH OPTIONS
+.TP
+\fB\-c\fR, \fB\-\-config\fR \fI<CONFIG>\fR
+YAML config file (CLI flags override its values)
+.TP
+\fB\-\-ssh\-addr\fR \fI<SSH_ADDR>\fR
+Address to listen for SSH on [default: 0.0.0.0:2200]
+.RS
+May also be specified with the \fBCHOOM_SSH_ADDR\fR environment variable. 
+.RE
+.TP
+\fB\-H\fR, \fB\-\-host\fR \fI<HOST>\fR
+Hostname advertised in the share links [default: choom.sh]
+.RS
+May also be specified with the \fBCHOOM_HOST\fR environment variable. 
+.RE
+.TP
+\fB\-p\fR, \fB\-\-port\fR \fI<PORT>\fR
+SSH port advertised in the share links [default: 2200]
+.RS
+May also be specified with the \fBCHOOM_PORT\fR environment variable. 
+.RE
+.TP
+\fB\-w\fR, \fB\-\-web\fR \fI<WEB>\fR
+Serve the output\-only web view on this address (omit to disable)
+.RS
+May also be specified with the \fBCHOOM_WEB_ADDR\fR environment variable. 
+.RE
+.TP
+\fB\-W\fR, \fB\-\-web\-url\fR \fI<WEB_URL>\fR
+Public web URL advertised to hosts (e.g. behind a TLS gateway)
+.RS
+May also be specified with the \fBCHOOM_WEB_URL\fR environment variable. 
+.RE
+.TP
+\fB\-\-max\-sessions\fR \fI<MAX_SESSIONS>\fR
+Global cap on concurrent sessions [default: 200]
+.TP
+\fB\-\-max\-viewers\fR \fI<MAX_VIEWERS>\fR
+Per\-session viewer cap [default: 50]
+.TP
+\fB\-\-rate\-limit\fR \fI<RATE_LIMIT>\fR
+New connections per source IP per minute, 0 = unlimited [default: 60]
+.TP
+\fB\-a\fR, \fB\-\-authorized\-keys\fR \fI<AUTHORIZED_KEYS>\fR
+File of OpenSSH public keys allowed to host (one per line)
+.TP
+\fB\-\-no\-default\-key\fR
+Do not trust the bundled default key (require authorized_keys)
+.TP
+\fB\-r\fR, \fB\-\-record\-dir\fR \fI<RECORD_DIR>\fR
+Store recordings in this directory (enables recording storage)
+.RS
+May also be specified with the \fBCHOOM_RECORD_DIR\fR environment variable. 
+.RE
+.TP
+\fB\-\-record\-all\fR
+Record every session, not only those whose host opted in
+.TP
+\fB\-\-record\-max\-age\-days\fR \fI<RECORD_MAX_AGE_DAYS>\fR
+Prune recordings older than this many days, 0 = no limit [default: 7]
+.TP
+\fB\-\-record\-max\-mb\fR \fI<RECORD_MAX_MB>\fR
+Cap total recordings size in MB, oldest first, 0 = no limit [default: 500]
+.TP
+\fB\-\-downloads\fR \fI<DOWNLOADS>\fR
+Directory of prebuilt binaries to serve at `/download`
+.RS
+May also be specified with the \fBCHOOM_DOWNLOADS\fR environment variable. 
+.RE
+.TP
+\fB\-h\fR, \fB\-\-help\fR
+Print help (see a summary with \*(Aq\-h\*(Aq)
+.SH EXTRA
+EXAMPLES:
+  Public relay (trusts the bundled default key) with web + recording:
+      choom server \-H relay.example.com \-w 0.0.0.0:8080 \-r /var/lib/choom/rec
+  Private relay (only listed keys may host):
+      choom server \-\-no\-default\-key \-a authorized_keys
+  From a YAML file (CLI flags still win):
+      choom server \-c /etc/choom.yaml

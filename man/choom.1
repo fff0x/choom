@@ -1,134 +1,50 @@
-.\" SPDX-License-Identifier: GPL-3.0-or-later
-.TH CHOOM 1 "2026-06-14" "choom 1.0.0" "User Commands"
+.ie \n(.g .ds Aq \(aq
+.el .ds Aq '
+.TH choom 1  "choom 2.0.0
+Copyright (C) 2026 Max 'ff0x' Reineke <ff0x@this-is-fine.io>
+License GPL-3.0-or-later: GNU GPL version 3 or later <https://gnu.org/licenses/gpl.html>
+This is free software: you are free to change and redistribute it." 
 .SH NAME
-choom \- minimal SSH terminal sharing relay
+choom \- Minimal SSH terminal\-sharing relay
 .SH SYNOPSIS
-.B choom server
-.RI [ options ]
-.br
-.B choom host
-.RI [ options ]
-.RI [ command ]
-.br
-.B choom clients
-.RI [ options ]
+\fBchoom\fR [\fB\-h\fR|\fB\-\-help\fR] [\fB\-V\fR|\fB\-\-version\fR] <\fIsubcommands\fR>
 .SH DESCRIPTION
-.B choom
-shares a terminal over SSH. A
-.B host
-runs its local shell and forwards it through a central
-.B relay
-(\fBchoom server\fR); viewers connect with a plain
-.BR ssh (1)
-using a token as the username \(em read-only or read-write. An optional read-only
-browser view and asciicast recording are available. The shell runs on the host; the
-relay only forwards bytes and never executes code.
-.PP
-There is no end-to-end encryption: a relay operator can read and inject into hosted
-sessions. Only host on a relay you trust.
-.SH COMMANDS
-.TP
-.B server
-Run the relay. Generates an Ed25519 host key on first start. Hosts authenticate by
-public key (\fBauthorized_keys\fR or the built-in default key); viewers authenticate
-by token.
-.TP
-.B host
-Share the local shell ($SHELL by default, or \fIcommand\fR). Prints a read-only and
-a read-write link.
-.TP
-.B clients
-List the active viewers of your own session.
+Minimal SSH terminal\-sharing relay
 .SH OPTIONS
-.SS Common
 .TP
-.BR \-c ", " \-\-config " " \fIFILE\fR
-Load options from a YAML file. Keys are the long option names; explicit flags
-override the file.
-.SS server
+\fB\-h\fR, \fB\-\-help\fR
+Print help (see a summary with \*(Aq\-h\*(Aq)
 .TP
-.BR \-p ", " \-\-listen\-port " " \fIPORT\fR
-Port to listen on (default 2200).
+\fB\-V\fR, \fB\-\-version\fR
+Print version
+.SH SUBCOMMANDS
 .TP
-.BR \-H ", " \-\-host " " \fINAME\fR
-Hostname advertised to viewers in the links.
+choom\-server(1)
+Run the central relay
 .TP
-.BR \-w ", " \-\-web " " \fISPEC\fR
-Enable the web view, e.g. \fB0.0.0.0:8080\fR. Empty disables it.
+choom\-host(1)
+Share your local shell through a relay
 .TP
-.BR \-W ", " \-\-web\-url " " \fIURL\fR
-Public base URL advertised for the web view (e.g. behind a TLS gateway).
+choom\-clients(1)
+List the viewers of your session
 .TP
-.BR \-r ", " \-\-record " " \fIDIR\fR
-Enable recording storage; hosts opt in per session with \fBchoom host \-\-record\fR.
-.TP
-.B \-\-record\-all
-Record every session, even without the host opting in.
-.TP
-.B \-\-no\-default\-key
-Do not trust the built-in default key (private relay).
-.TP
-.BR \-a ", " \-\-authorized\-keys " " \fIPATH\fR
-File of public keys allowed to host.
-.TP
-.B \-\-max\-sessions \fIN\fR
-Global cap on concurrent sessions (default 200; 0 = unlimited).
-.TP
-.B \-\-max\-viewers \fIN\fR
-Cap on viewers per session (default 50; 0 = unlimited).
-.TP
-.B \-\-rate\-limit \fIN\fR
-New connections per source IP per minute (default 60; 0 = off).
-.TP
-.B \-\-record\-max\-age\-days \fIN\fR, \-\-record\-max\-mb \fIN\fR
-Recording retention by age (default 7) and total size (default 500).
-.TP
-.B \-\-downloads \fIDIR\fR
-Directory of prebuilt binaries served at \fB/download/\fR.
-.SS host
-.TP
-.BR \-s ", " \-\-server " " \fINAME\fR
-Relay to connect to (default choom.this-is-fine.io).
-.TP
-.BR \-i ", " \-\-identity " " \fIKEY\fR
-Private SSH key (else the bundled default key).
-.TP
-.B \-\-record
-Ask the relay to record this session.
-.SH ENVIRONMENT
-The container entrypoint maps \fBCHOOM_*\fR variables to the server options above
-(\fBCHOOM_HOSTNAME\fR, \fBCHOOM_WEB\fR, \fBCHOOM_RECORD\fR, \fBCHOOM_MAX_SESSIONS\fR,
-\fBCHOOM_RATE_LIMIT\fR, \fBCHOOM_RECORD_ALL\fR, ...). See the README.
-.SH FILES
-.TP
-.I host_key
-Relay Ed25519 host key (generated, mode 0600).
-.TP
-.I authorized_keys
-Public keys allowed to host.
-.TP
-.I *.cast
-asciicast v2 recordings (mode 0600), downloadable at \fB/s/<ro-token>/cast\fR.
-.SH EXAMPLES
-.PP
-Public host (uses the default server and key):
-.PP
-.RS
-.EX
-choom host
-.EE
-.RE
-.PP
-Private relay:
-.PP
-.RS
-.EX
-choom server \-\-no\-default\-key \-a authorized_keys \-w 0.0.0.0:8080
-choom host \-s relay.example \-i ~/.ssh/id_ed25519 \-\-no\-default\-key
-.EE
-.RE
-.SH SEE ALSO
-.BR ssh (1),
-.BR asciinema (1)
-.SH LICENSE
-GPL-3.0-or-later.
+choom\-help(1)
+Print this message or the help of the given subcommand(s)
+.SH EXTRA
+EXAMPLES:
+  Share your shell on a relay:
+      choom host \-s relay.example.com
+  Run a relay with the web view:
+      choom server \-H relay.example.com \-w 0.0.0.0:8080
+  List who is watching your session:
+      choom clients
+
+Viewers need no choom binary — they attach with stock ssh:
+      ssh <token>@relay.example.com
+.SH VERSION
+v2.0.0
+Copyright (C) 2026 Max \*(Aqff0x\*(Aq Reineke <ff0x@this\-is\-fine.io>
+License GPL\-3.0\-or\-later: GNU GPL version 3 or later <https://gnu.org/licenses/gpl.html>
+This is free software: you are free to change and redistribute it.
+.SH AUTHORS
+Max \*(Aqff0x\*(Aq Reineke <ff0x@this\-is\-fine.io>

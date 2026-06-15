@@ -1,0 +1,16 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+[package]
+name = "xtask"
+description = "Dev tooling for choom (man-page generation)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+choom-cli.workspace = true
+clap.workspace = true
+clap_mangen.workspace = true
+anyhow.workspace = true

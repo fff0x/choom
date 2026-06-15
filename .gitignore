@@ -1,15 +1,14 @@
-.venv/
-__pycache__/
-*.pyc
-# nix
+# rust
+/target
+Cargo.lock.orig
+# nix / direnv
 result
 result-*
 .direnv/
-# runtime state
-host_key
-host_key.pub
+# runtime state (never commit)
 authorized_keys
 recordings/
 *.cast
-.mate_session.json
 downloads/
+# local scratch / task notes
+TODO*

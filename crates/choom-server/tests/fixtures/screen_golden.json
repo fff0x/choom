@@ -1,0 +1,19 @@
+{
+  "cols": 20,
+  "rows": 8,
+  "input": "\u001b[2J\u001b[HHeader line\r\n\u001b[31mred\u001b[0m-\u001b[32mgreen\u001b[0m\r\n\u001b[5;10HX\u001b[3;1Hwrapped ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ\u001b[8;1Hdone\u001b[8;5H",
+  "display": [
+    "Header line         ",
+    "red-green           ",
+    "wrapped ZZZZZZZZZZZZ",
+    "ZZZZZZZZZZZZZZZZZZ  ",
+    "         X          ",
+    "                    ",
+    "                    ",
+    "done                "
+  ],
+  "cursor": {
+    "col": 4,
+    "row": 7
+  }
+}

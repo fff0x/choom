@@ -4,10 +4,11 @@
 
   inputs = {
     nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
+    crane.url = "github:ipetkov/crane";
   };
 
   outputs =
-    { self, nixpkgs }:
+    { self, nixpkgs, crane }:
     let
       systems = [
         "x86_64-linux"
@@ -25,8 +26,27 @@
     in
     {
       # Reusable overlay so other flakes (e.g. the fr0st system flake) get pkgs.choom.
+      # choom 2.0 is a Rust workspace; build the `choom` binary with crane.
       overlays.default = final: _prev: {
-        choom = final.python3Packages.callPackage ./nix/package.nix { src = self; };
+        choom =
+          let
+            craneLib = crane.mkLib final;
+          in
+          craneLib.buildPackage {
+            pname = "choom";
+            version = "2.0.0";
+            src = craneLib.cleanCargoSource self;
+            strictDeps = true;
+            cargoExtraArgs = "--locked -p choom-cli";
+            # The integration tests spin up SSH/PTY/sockets; run them via `cargo test`
+            # in the devShell, not in the sandboxed package build.
+            doCheck = false;
+            meta = {
+              description = "Minimal SSH terminal sharing relay";
+              license = final.lib.licenses.gpl3Plus;
+              mainProgram = "choom";
+            };
+          };
       };
 
       # NixOS module to run the relay as a hardened systemd service. Brings the
@@ -64,8 +84,12 @@
           default = pkgs.mkShell {
             inputsFrom = [ pkgs.choom ];
             packages = [
-              pkgs.python3Packages.pytest
-              pkgs.python3Packages.pip
+              pkgs.cargo
+              pkgs.rustc
+              pkgs.rustfmt
+              pkgs.clippy
+              pkgs.rust-analyzer
+              pkgs.go-task
             ];
           };
         }

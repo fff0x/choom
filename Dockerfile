@@ -1,120 +1,59 @@
 # syntax=docker/dockerfile:1
-# Dockerfile version: 0.0.1
+# choom 2.0 relay — a single static musl binary on `scratch`.
 
 ##
-## BUILD
+## BUILD — compile a static musl binary (alpine's rust targets musl natively)
 ##
+FROM rust:alpine AS build
 
-FROM alpine:3.22.4 AS build
+RUN apk add --no-cache musl-dev
+WORKDIR /src
 
-# Build a self-contained virtualenv with choom + its dependencies. asyncssh and
-# pyte are pure Python; aiohttp and cryptography (pulled in via asyncssh) ship
-# prebuilt musllinux wheels for x86_64/aarch64, so no compiler is needed here.
-#
-# FALLBACK: if a dependency has no musllinux wheel for the target arch, pip will
-# try to build from source. In that case add the toolchain below, e.g.:
-#   RUN apk add --no-cache gcc musl-dev libffi-dev openssl-dev python3-dev cargo
-RUN apk add --no-cache --update python3 py3-pip
+# Cargo manifests + lockfile first, so the dependency build layer caches across
+# source-only changes.
+COPY Cargo.toml Cargo.lock ./
+COPY crates ./crates
 
-COPY pyproject.toml README.md LICENSE /build/
-COPY src /build/src
-
-RUN python3 -m venv /opt/venv \
-  && /opt/venv/bin/pip install --no-cache-dir /build
+# The release profile (workspace Cargo.toml) already strips, LTOs, and opt-z's.
+RUN cargo build --release --locked -p choom-cli \
+  && /src/target/release/choom --version
 
 ##
-## MAIN
+## MAIN — nothing but the binary
 ##
-
-FROM alpine:3.22.4
-
-##
-## VARIABLES
-##
+FROM scratch
 
 ARG CAT=choom
 ARG APP=relay
-ARG APP_VERSION=1.0.0
+ARG APP_VERSION=2.0.0
 ARG APP_DESCRIPTION="choom — minimal SSH terminal sharing relay"
-# ------------------
 
 LABEL \
   org.opencontainers.image.vendor="this-is-fine" \
   org.opencontainers.image.url="https://this-is-fine.io" \
-  org.opencontainers.image.authors="Max Reineke <ff0x@this-is-fine.io>" \
+  org.opencontainers.image.authors="Max 'ff0x' Reineke <ff0x@this-is-fine.io>" \
   org.opencontainers.image.title="${CAT}-${APP}" \
   org.opencontainers.image.version="${APP_VERSION}" \
   org.opencontainers.image.description="$APP_DESCRIPTION" \
   org.opencontainers.image.licenses="GPL-3.0-or-later" \
-  org.opencontainers.image.source="https://radicle.network/nodes/seed.this-is-fine.io/rad:zc53mExb6ttoNQXMMZh9xxn5n2HH" 
+  org.opencontainers.image.source="https://radicle.network/nodes/seed.this-is-fine.io/rad:zc53mExb6ttoNQXMMZh9xxn5n2HH"
 
-##
-## CONFIGURATION
-##
+COPY --from=build /src/target/release/choom /choom
 
-ARG CAT_GID=10001
-ARG APP_UID=10001
-ARG TARGETARCH
+# choom never runs a shell itself — it only relays bytes — so it runs unprivileged,
+# unlike tmate-ssh-server which needs root + SYS_ADMIN for jailing. `scratch` has no
+# users, but a numeric uid is enough.
+USER 10001:10001
 
-##
-## PREPARATION
-##
+# Configure entirely via CHOOM_* env / flags (clap reads the env vars directly):
+#   CHOOM_SSH_ADDR, CHOOM_HOST, CHOOM_PORT, CHOOM_WEB_ADDR, CHOOM_WEB_URL,
+#   CHOOM_RECORD_DIR, CHOOM_LOG_FORMAT=json, RUST_LOG
+ENV CHOOM_SSH_ADDR="0.0.0.0:2200" \
+    CHOOM_WEB_ADDR="0.0.0.0:8080" \
+    CHOOM_LOG_FORMAT="json"
 
-USER root
-
-# GENERIC
-
-COPY --chmod=755 ep /ep
-
-RUN \
-  addgroup -S -g "$CAT_GID" "$CAT" \
-  && adduser -S -u "$APP_UID" -G "$CAT" -h "/${CAT}" -s /sbin/nologin -D "$APP"
-
-RUN \
-  apk upgrade --update --no-cache \
-  && apk add --no-cache tzdata \
-  && rm -rf /tmp/* /var/cache/apk/* /etc/localtime \
-  && ln -sf /usr/share/zoneinfo/UTC /etc/localtime
-
-# APP
-
-COPY --from=build /opt/venv /opt/venv
-
-# python3 provides the interpreter the venv links against; openssh-keygen lets the
-# entrypoint print host-key fingerprints; libgcc backs the cryptography wheel.
-RUN \
-  apk add --update --no-cache \
-  python3 \
-  libgcc \
-  openssh-keygen \
-  && /opt/venv/bin/python -c "import choom.server, choom.web, asyncssh, pyte, aiohttp" \
-  && /opt/venv/bin/choom --version \
-  && mkdir -p "/${CAT}/data" \
-  && chown -R "$APP":"$CAT" "/${CAT}"
-
-##
-## ENVIRONMENT
-##
-
-# choom never runs a shell itself — it only relays bytes — so it runs unprivileged
-# (uid 10001), unlike tmate-ssh-server which needs root + SYS_ADMIN for jailing.
-USER "$APP"
-WORKDIR "/${CAT}"
-VOLUME [ "/${CAT}/data" ]
-ENV PATH="/opt/venv/bin:$PATH" \
-  CHOOM_DATA="/${CAT}/data" \
-  PYTHONUNBUFFERED="1" \
-  PYTHONDONTWRITEBYTECODE="1"
-
-##
-## PORTS
-##
-
-# 2200 = SSH relay (hosts + viewers) · 8080 = read-only web view
+# 2200 = SSH relay (hosts + viewers) · 8080 = read-only web view + /metrics
 EXPOSE 2200 8080
 
-##
-## INIT
-##
-
-ENTRYPOINT [ "/ep" ]
+ENTRYPOINT ["/choom"]
+CMD ["server"]

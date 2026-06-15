@@ -1,129 +1,47 @@
 # Changelog
 
-All notable changes to choom are documented here. The format follows
-[Keep a Changelog](https://keepachangelog.com/), and the project uses
-[semantic versioning](https://semver.org/).
+Notable changes, newest first. [Keep a Changelog](https://keepachangelog.com/) /
+[SemVer](https://semver.org/).
 
-## [1.0.0] - 2026-06-14
+## [2.0.0] - 2026-06-15
 
-First stable release. The Python implementation is feature-complete, tested
-(50 tests), documented, and deployed.
+Ground-up Rust rewrite. Clean-break wire protocol — a 2.0 host needs a 2.0 relay.
+Shipped as one static `choom` binary (`server`/`host`/`clients`), ~3.6 MB.
 
-### Added
+### Changed (architecture)
 
-- Documentation set under `docs/` (architecture, deployment, config) and a
-  README rework with a choom-vs-tmate comparison.
-- A plan for a future Rust port (`docs/RUST-REWRITE-PLAN.md`, targeting a 2.0).
-
-### Summary of capabilities
-
-- SSH relay with read-only/read-write tokens; viewers use stock `ssh`.
-- Server-side pyte screen model (correct snapshot/repaint), resize negotiation,
-  reconnect, read-only web view, asciicast recording (opt-in, GC'd).
-- Public-relay hardening (rate limit, session/viewer caps), connection logging.
-- Bundled default key, YAML config, Nix flake + NixOS module, container image,
-  Kubernetes manifests, and a portable single-file binary.
-
-## [0.3.3] - 2026-06-14
-
-### Fixed
-
-- **Terminal artifacts**: device-attributes replies (e.g. `ESC[?62;52;c`) from a
-  viewer's or the host's terminal are stripped from shell input, so they no longer
-  land at the prompt as `62;52;c` garbage (seen around starting/exiting vim).
-- **Host banner**: corrected wording ("Welcome, Choomba, your shell is now shared!"
-  / "viewers connect with their ssh client.") and a leading `\r` so it always starts
-  at column 0.
-
-### Changed
-
-- Server log lines now include the host's source IP on session create.
-- Removed `SECURITY.md` (its content lives in the README and on the landing page);
-  moved `choom.example.yaml` to `docs/config.yaml`.
-
-## [0.3.2] - 2026-06-14
+- **Transport**: one typed, length-delimited [`postcard`](https://docs.rs/postcard)
+  frame channel host↔relay, replacing 1.x's two SSH channels + newline-JSON.
+- **Screen model**: [`avt`](https://docs.rs/avt) (asciinema's VT) replaces pyte; one
+  model backs the join snapshot, the recording, and the live web view.
+- **Web**: live stream to a self-hosted asciinema-player (vendored, gzipped, no CDN),
+  output-only. Live wire is the player's format — a top-level `{cols,rows}` header +
+  absolute-time `[t,"o",data]` events (not v3-over-WS).
+- **Recording**: asciicast v3 files (opt-in, `0600`, age/size GC).
+- **Crypto**: russh `ring` backend, EC-only (ed25519/ecdsa, no RSA), no zlib — drops
+  the ~720 KB `aws-lc-sys` C library.
 
 ### Added
 
-- **Operational logging**: the relay now logs session create/close, host
-  connect/disconnect/reconnect, viewer join/leave, rejected (unknown/expired)
-  tokens, and rate-limit drops — so operators can see activity in the pod logs.
-  No secrets are logged (sessions get a short numeric id).
+- `choom clients` — viewer roster via a relay query role + a per-host session file.
+- **Reconnect/resume** — host reconnect loop (PTY/shell survive); the relay holds the
+  session for a grace period and viewers stay attached across the gap.
+- CLI flags + env vars + YAML config (`CLI > file > default`).
+- Structured JSON logging (`CHOOM_LOG_FORMAT=json`), Prometheus `/metrics`, SIGTERM
+  drain.
+- Host-key fingerprint verification (`choom host --fingerprint`).
+- Detached remote-support mode (`choom host --detach`).
+- `authorized_keys` host gating (`-a`) alongside the bundled default key.
+- Man pages generated from the CLI (`clap_mangen` via `xtask`); examples also in
+  `--help`.
 
-### Fixed
+### Security
 
-- **Unknown/expired token UX**: connecting with a stale token now shows
-  "unknown or expired session — ask for a fresh link" instead of a bare
-  "Shared connection closed". (The relay itself was fine; the silent close just
-  looked like a bug when a viewer's `choom host` had already ended.)
+- Unchanged trust-the-operator model: the relay handles cleartext and can read **and
+  inject**; RO/RW tokens restrict other viewers, not the operator. An optional native
+  end-to-end-encrypted client is designed in [docs/E2E-CLIENT.md](docs/E2E-CLIENT.md).
 
-## [0.3.1] - 2026-06-14
+## 1.x
 
-### Changed
-
-- Dropped the "tmate without tmux" phrasing for "minimal SSH terminal sharing relay";
-  README now references [tmate](https://github.com/tmate-io/tmate) as prior art.
-- Security wording corrected: a relay operator can **read and inject** into sessions
-  (no E2E); the landing page and docs now say so plainly.
-- `justfile` replaced by a `Taskfile.yml` (go-task); removed the unused
-  `requirements.txt`.
-
-### Added
-
-- `man/choom.1` man page; `docs/RUST-EVAL.md` (assessment of a Rust port).
-
-## [0.3.0] - 2026-06-14
-
-### Added
-
-- **Per-session recording opt-in**: `choom host --record` asks the relay to record
-  that session; the server's `-r` only enables storage. `--record-all` forces all.
-- **YAML config**: `choom server|host|clients -c file.yaml` (CLI flags still win);
-  see `choom.example.yaml`.
-- **NixOS module** `nixosModules.default` (`services.choom-relay`) — runs the relay
-  as a hardened systemd service, configured via Nix.
-- **Dev tooling**: `.envrc` (direnv `use flake`) and a `justfile`
-  (`setup`/`test`/`build`/`run`/`image`/`binary`/`fmt`).
-- Flavor: the host greets with "Welcome, Choomba." and the landing page leads with it.
-- README sections on recordings (asciicast) and the config file.
-
-### Changed
-
-- The public relay now records only sessions whose host opted in (better privacy).
-
-## [0.2.0] - 2026-06-14
-
-### Added
-
-- **Public-relay hardening**: per-IP connection rate limiting (`--rate-limit`),
-  global session cap (`--max-sessions`), and a per-session viewer cap
-  (`--max-viewers`).
-- **Recording retention / GC**: prune `.cast` files by age (`--record-max-age-days`,
-  default 7) and total size (`--record-max-mb`, default 500), oldest first.
-- **Landing page** at `/` (info, usage, and a public-relay warning) — the terminal
-  viewer now lives only at `/s/<token>`.
-- **Downloads** served at `/download/` from a directory (`--downloads`,
-  `CHOOM_DOWNLOADS`); empty state shows install instructions. With
-  `tools/build-binaries.sh` / `tools/binary.Dockerfile` you can build a portable
-  single-file binary (Nuitka, default) and drop it there.
-- `-W/--web-url` to advertise a public web URL (e.g. behind a TLS gateway).
-- A threat-model / security review (in the README and on the landing page) and
-  this changelog.
-
-### Fixed
-
-- **Web view sizing**: the browser now receives the host's terminal size and scales
-  xterm.js to fit the window, so wide sessions are no longer cut off.
-- **Cast download**: the download link is hidden unless a recording exists; the
-  deployment enables recording so `/s/<token>/cast` works.
-
-### Notes
-
-- A literal `%` in output is transmitted verbatim (verified by test). A trailing
-  `%` some shells show is zsh's `PROMPT_EOL_MARK`, not a choom bug.
-
-## [0.1.0] - 2026-06-14
-
-- Initial release: SSH relay, host client, read-only web view (xterm.js),
-  asciicast recording, reconnect, resize negotiation, bundled default key,
-  Nix flake, container image, and Kubernetes deployment.
+1.x was a Python implementation (asyncssh + pyte + aiohttp), preserved on `main`
+(tag `1.0.0`) as the functional reference. 2.0 does not interoperate with it.

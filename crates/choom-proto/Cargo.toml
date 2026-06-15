@@ -1,0 +1,25 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+[package]
+name = "choom-proto"
+description = "Shared wire protocol, constants and tokens for choom"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+serde.workspace = true
+postcard.workspace = true
+base64.workspace = true
+getrandom.workspace = true
+subtle.workspace = true
+# optional: the tokio-util framing codec (host<->relay transport)
+bytes = { workspace = true, optional = true }
+tokio-util = { workspace = true, optional = true }
+
+[features]
+# `codec` adds the tokio-util Encoder/Decoder for Frames; the schema stays I/O-free
+# without it (so the crate is cheap for pure consumers).
+codec = ["dep:bytes", "dep:tokio-util"]

@@ -1,0 +1,23 @@
+.ie \n(.g .ds Aq \(aq
+.el .ds Aq '
+.TH choom-clients 1  "choom-clients " 
+.SH NAME
+choom\-clients \- List the viewers of your session
+.SH SYNOPSIS
+\fBchoom\-clients\fR [\fB\-i\fR|\fB\-\-identity\fR] [\fB\-\-no\-default\-key\fR] [\fB\-h\fR|\fB\-\-help\fR] 
+.SH DESCRIPTION
+List the viewers of your session
+.SH OPTIONS
+.TP
+\fB\-i\fR, \fB\-\-identity\fR \fI<IDENTITY>\fR
+Identity key used to create the session (must match the host\*(Aqs key)
+.TP
+\fB\-\-no\-default\-key\fR
+The host did not use the bundled default key
+.TP
+\fB\-h\fR, \fB\-\-help\fR
+Print help (see a summary with \*(Aq\-h\*(Aq)
+.SH EXTRA
+EXAMPLES:
+  List the viewers of your active session:
+      choom clients

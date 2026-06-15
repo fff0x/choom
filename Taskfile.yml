@@ -1,9 +1,6 @@
 # choom task runner — `task <name>` (https://taskfile.dev)
-# Inside the flake devShell (direnv) python/pytest/nix are on PATH.
+# The flake devShell (direnv) puts cargo/rustfmt/clippy/nix on PATH.
 version: "3"
-
-vars:
-  PY: .venv/bin/python
 
 tasks:
   default:
@@ -11,45 +8,52 @@ tasks:
       - task --list
     silent: true
 
-  setup:
-    desc: create venv + editable install (with test deps)
+  build:
+    desc: build the Rust workspace
     cmds:
-      - python3 -m venv .venv
-      - "{{.PY}} -m pip install -e '.[test]'"
+      - cargo build --workspace
 
   test:
     desc: run the test suite (pass extra args after --)
     cmds:
-      - "{{.PY}} -m pytest {{.CLI_ARGS}}"
+      - "cargo test --workspace {{.CLI_ARGS}}"
 
-  build:
-    desc: build the choom package with nix
+  check:
+    desc: the full gate — fmt + clippy + test
+    cmds:
+      - cargo fmt --all --check
+      - cargo clippy --all-targets --all-features -- -D warnings
+      - cargo test --workspace
+
+  fmt:
+    desc: format the workspace (Rust + nix)
+    cmds:
+      - cargo fmt --all
+      - nix fmt
+
+  run:
+    desc: run choom (e.g. task run -- server -w 0.0.0.0:8080)
+    cmds:
+      - "cargo run -p choom-cli -- {{.CLI_ARGS}}"
+
+  nix-build:
+    desc: build the choom binary with nix (crane)
     cmds:
       - "nix build .#choom"
 
-  run:
-    desc: run choom from the flake (e.g. task run -- host)
+  man:
+    desc: regenerate the man pages from the CLI into man/
     cmds:
-      - "nix run .#choom -- {{.CLI_ARGS}}"
+      - cargo run -p xtask
 
   image:
-    desc: build the relay container image
+    desc: build the relay container image (static musl on scratch)
     vars:
       TAG: '{{.TAG | default "choom/relay:dev"}}'
     cmds:
       - "docker build -t {{.TAG}} ."
 
-  binary:
-    desc: build a portable single-file binary into ./downloads (Nuitka)
-    cmds:
-      - ./tools/build-binaries.sh
-
-  fmt:
-    desc: format nix files
-    cmds:
-      - nix fmt
-
   clean:
     desc: remove build artifacts
     cmds:
-      - rm -rf .venv downloads result .pytest_cache
+      - rm -rf target result

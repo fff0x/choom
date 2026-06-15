@@ -1,0 +1,54 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+[workspace]
+resolver = "2"
+members = ["crates/*"]
+# `xtask` is dev-only tooling (man-page generation); the release binary builds with
+# `-p choom-cli`, so clap_mangen never enters the image or the Nix package.
+
+[workspace.package]
+version = "2.0.0"
+edition = "2021"
+license = "GPL-3.0-or-later"
+authors = ["Max 'ff0x' Reineke <ff0x@this-is-fine.io>"]
+repository = "https://seed.this-is-fine.io/zc53mExb6ttoNQXMMZh9xxn5n2HH.git"
+rust-version = "1.82"
+
+[workspace.dependencies]
+# internal crates
+choom-proto = { path = "crates/choom-proto" }
+choom-server = { path = "crates/choom-server" }
+choom-host = { path = "crates/choom-host" }
+choom-cli = { path = "crates/choom-cli" }
+# shared third-party
+anyhow = "1"
+clap = { version = "4", features = ["derive", "env"] }
+clap_mangen = "0.2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml = "0.9"
+postcard = { version = "1", features = ["use-std"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+metrics = "0.24"
+metrics-exporter-prometheus = { version = "0.17", default-features = false }
+# ssh transport + async. `ring` crypto backend instead of the default `aws-lc-rs`
+# (aws-lc-sys is a ~720 KB C lib); EC-only (no RSA), no zlib compression.
+russh = { version = "0.61", default-features = false, features = ["ring"] }
+tokio = { version = "1", features = ["full"] }
+tokio-util = { version = "0.7", features = ["codec", "rt"] }
+futures = "0.3"
+bytes = "1"
+# tokens + framing helpers
+base64 = "0.22"
+getrandom = "0.2"
+subtle = "2"
+# rand 0.10 to match russh/ssh-key's rand_core; thread_rng gives `rand::rng()`
+rand = { version = "0.10", features = ["thread_rng"] }
+
+# A single static musl binary is the distribution goal: optimise release for size.
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"

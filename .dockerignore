@@ -1,17 +1,13 @@
-.venv/
-__pycache__/
-*.pyc
-.pytest_cache/
-*.egg-info/
-tests/
-deploy/
+# Only Cargo.toml, Cargo.lock and crates/ are copied by the Dockerfile; ignore the
+# rest so the build context stays small and reproducible.
+target/
 .git/
 .gitignore
+.direnv/
+result
+result-*
 # runtime state that must never land in the image
-host_key
-host_key.pub
 authorized_keys
 recordings/
 *.cast
 downloads/
-tools/

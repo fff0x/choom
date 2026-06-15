@@ -1,0 +1,29 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+[package]
+name = "choom-host"
+description = "choom host: shares a local PTY shell through the relay"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+choom-proto = { workspace = true, features = ["codec"] }
+anyhow.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+futures.workspace = true
+russh.workspace = true
+rand.workspace = true
+serde = { workspace = true }
+serde_json.workspace = true
+pty-process = { version = "0.5.3", features = ["async"] }
+rustix = { version = "1", features = ["termios", "stdio"] }
+
+[dev-dependencies]
+choom-server = { workspace = true }
+tokio = { workspace = true }

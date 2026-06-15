@@ -1,0 +1,54 @@
+.ie \n(.g .ds Aq \(aq
+.el .ds Aq '
+.TH choom-host 1  "choom-host " 
+.SH NAME
+choom\-host \- Share your local shell through a relay
+.SH SYNOPSIS
+\fBchoom\-host\fR [\fB\-c\fR|\fB\-\-config\fR] [\fB\-s\fR|\fB\-\-server\fR] [\fB\-p\fR|\fB\-\-port\fR] [\fB\-\-shell\fR] [\fB\-\-record\fR] [\fB\-i\fR|\fB\-\-identity\fR] [\fB\-\-no\-default\-key\fR] [\fB\-\-fingerprint\fR] [\fB\-\-detach\fR] [\fB\-h\fR|\fB\-\-help\fR] 
+.SH DESCRIPTION
+Share your local shell through a relay
+.SH OPTIONS
+.TP
+\fB\-c\fR, \fB\-\-config\fR \fI<CONFIG>\fR
+YAML config file (CLI flags override its values)
+.TP
+\fB\-s\fR, \fB\-\-server\fR \fI<SERVER>\fR
+Relay hostname [default: choom.sh]
+.RS
+May also be specified with the \fBCHOOM_SERVER\fR environment variable. 
+.RE
+.TP
+\fB\-p\fR, \fB\-\-port\fR \fI<PORT>\fR
+Relay SSH port [default: 2200]
+.RS
+May also be specified with the \fBCHOOM_PORT\fR environment variable. 
+.RE
+.TP
+\fB\-\-shell\fR \fI<SHELL>\fR
+Shell to run (defaults to $SHELL, then /bin/sh)
+.TP
+\fB\-\-record\fR
+Ask the relay to record this session
+.TP
+\fB\-i\fR, \fB\-\-identity\fR \fI<IDENTITY>\fR
+Identity key file to authenticate with (overrides the default key)
+.TP
+\fB\-\-no\-default\-key\fR
+Do not use the bundled default key (use \-i or a persisted per\-user key)
+.TP
+\fB\-\-fingerprint\fR \fI<FINGERPRINT>\fR
+Verify the relay\*(Aqs host\-key fingerprint (`SHA256:…`) on connect
+.TP
+\fB\-\-detach\fR
+Detached "remote\-support" mode: share the shell to viewers without attaching your local terminal (print the links, then relay; the shell is driven remotely)
+.TP
+\fB\-h\fR, \fB\-\-help\fR
+Print help (see a summary with \*(Aq\-h\*(Aq)
+.SH EXTRA
+EXAMPLES:
+  Share your shell on the default relay:
+      choom host
+  Point at your own relay and record the session:
+      choom host \-s relay.example.com \-\-record
+  Use a specific identity on a private relay:
+      choom host \-s relay.example.com \-\-no\-default\-key \-i ~/.ssh/id_ed25519

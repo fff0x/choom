@@ -35,12 +35,14 @@ in
       example = {
         host = "choom.example.com";
         web = "0.0.0.0:8080";
-        no-default-key = true;
+        use_default_key = false;
+        authorized_keys = [ "ssh-ed25519 AAAA... alice" ];
+        record_dir = "/var/lib/choom/recordings";
       };
       description = ''
         choom server settings, written to a YAML config (`choom server -c`).
-        Keys are the long option names; see `docs/config.yaml`. Paths default to
-        the service state directory (/var/lib/choom).
+        Keys are the snake_case config keys; see `docs/config.yaml`. Unknown keys
+        are rejected by the relay.
       '';
     };
 
@@ -58,24 +60,17 @@ in
   };
 
   config = lib.mkIf cfg.enable {
-    # Sensible state-directory defaults the user can still override via `settings`.
-    services.choom-relay.settings = lib.mkMerge [
-      {
-        host-key = lib.mkDefault "/var/lib/choom/host_key";
-        authorized-keys = lib.mkDefault "/var/lib/choom/authorized_keys";
-        downloads = lib.mkDefault "/var/lib/choom/downloads";
-      }
-    ];
-
     networking.firewall = lib.mkIf cfg.openFirewall (
       let
-        sshPort = cfg.settings.listen-port or 2200;
-        webSpec = cfg.settings.web or "";
-        webPort =
+        portOf =
+          spec: default:
           let
-            m = builtins.match ".*:([0-9]+)" webSpec;
+            m = builtins.match ".*:([0-9]+)" spec;
           in
-          if m == null then null else lib.toInt (builtins.head m);
+          if m == null then default else lib.toInt (builtins.head m);
+        sshPort = portOf (cfg.settings.ssh_addr or "0.0.0.0:2200") 2200;
+        webSpec = cfg.settings.web or "";
+        webPort = if webSpec == "" then null else portOf webSpec 8080;
       in
       {
         allowedTCPPorts = [ sshPort ] ++ lib.optional (webPort != null) webPort;
@@ -107,7 +102,7 @@ in
         RestrictNamespaces = true;
         RestrictRealtime = true;
         LockPersonality = true;
-        MemoryDenyWriteExecute = false; # cpython JIT-free, but keep off to be safe
+        MemoryDenyWriteExecute = true; # Rust binary, no JIT — W^X is safe
         SystemCallFilter = [ "@system-service" ];
         CapabilityBoundingSet = "";
       };

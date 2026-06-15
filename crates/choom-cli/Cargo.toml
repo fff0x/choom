@@ -1,0 +1,23 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+[package]
+name = "choom-cli"
+description = "The choom command-line entrypoint"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "choom"
+path = "src/main.rs"
+
+[dependencies]
+choom-server.workspace = true
+choom-host.workspace = true
+choom-proto.workspace = true
+anyhow.workspace = true
+clap.workspace = true
+serde = { workspace = true }
+serde_yaml.workspace = true
