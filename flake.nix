@@ -35,12 +35,19 @@
           craneLib.buildPackage {
             pname = "choom";
             version = "2.0.0";
-            src = craneLib.cleanCargoSource self;
+            # Use the full (git-tracked) flake source, not cleanCargoSource: the build
+            # embeds non-Cargo files (the bundled default key, gzipped web assets) via
+            # include_bytes!/include_str!, and postInstall needs the man pages.
+            src = self;
             strictDeps = true;
+            nativeBuildInputs = [ final.installShellFiles ];
             cargoExtraArgs = "--locked -p choom-cli";
             # The integration tests spin up SSH/PTY/sockets; run them via `cargo test`
             # in the devShell, not in the sandboxed package build.
             doCheck = false;
+            postInstall = ''
+              installManPage man/choom.1 man/choom-server.1 man/choom-host.1 man/choom-clients.1
+            '';
             meta = {
               description = "Minimal SSH terminal sharing relay";
               license = final.lib.licenses.gpl3Plus;
