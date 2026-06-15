@@ -142,6 +142,17 @@ pub async fn serve_on(cfg: Config, listener: TcpListener) -> anyhow::Result<()> 
         });
     }
 
+    // Optional operator-internal Prometheus endpoint on its own listener (keep it off the
+    // public web port; bind it to loopback or a private interface and scrape it there).
+    if let Some(metrics_addr) = app.cfg.metrics_addr {
+        let m_app = app.clone();
+        tokio::spawn(async move {
+            if let Err(e) = web::serve_metrics(m_app, metrics_addr).await {
+                tracing::error!(error = %e, "metrics endpoint stopped");
+            }
+        });
+    }
+
     let ssh_config = Arc::new(russh::server::Config {
         inactivity_timeout: Some(Duration::from_secs(3600)),
         auth_rejection_time: Duration::from_secs(2),

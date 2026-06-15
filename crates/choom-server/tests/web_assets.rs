@@ -7,7 +7,7 @@ use std::sync::Arc;
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use choom_server::session::{App, Config};
-use choom_server::web::router;
+use choom_server::web::{metrics_router, router};
 use tower::ServiceExt; // oneshot
 
 async fn get(app: &Arc<App>, path: &str) -> axum::response::Response {
@@ -15,6 +15,13 @@ async fn get(app: &Arc<App>, path: &str) -> axum::response::Response {
         .oneshot(Request::get(path).body(Body::empty()).unwrap())
         .await
         .unwrap()
+}
+
+async fn body_string(resp: axum::response::Response) -> String {
+    let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    String::from_utf8_lossy(&bytes).into_owned()
 }
 
 #[tokio::test]
@@ -63,6 +70,118 @@ async fn serves_vendored_player_and_download_index() {
         StatusCode::OK,
         "no downloads dir configured"
     );
+}
+
+/// The `/download` index must HTML-escape filenames it lists. A file whose name contains
+/// HTML metacharacters must render as inert text, never as live markup (stored XSS guard).
+#[tokio::test]
+async fn download_index_escapes_filenames() {
+    let dir = std::env::temp_dir().join(format!("choom-dl-xss-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    // A regular file whose name carries an XSS payload (legal on Linux: only `/` and NUL
+    // are disallowed in a path component).
+    std::fs::write(dir.join("a<img src=x onerror=alert(1)>.bin"), b"x").unwrap();
+
+    let app = App::new(
+        Config {
+            downloads_dir: Some(dir.clone()),
+            ..Config::default()
+        },
+        "SHA256:test".to_string(),
+    );
+
+    let html = body_string(get(&app, "/download").await).await;
+    assert!(
+        !html.contains("<img src=x"),
+        "filename must not be emitted as live HTML; got:\n{html}"
+    );
+    assert!(
+        html.contains("a&lt;img src=x onerror=alert(1)&gt;.bin"),
+        "filename must be HTML-escaped in the index; got:\n{html}"
+    );
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+/// `/download/{file}` serves a whitelisted name (streamed) and rejects anything else —
+/// path traversal, header-breaking characters, and the `.`/`..` specials.
+#[tokio::test]
+async fn download_file_whitelists_and_streams() {
+    let dir = std::env::temp_dir().join(format!("choom-dl-ok-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("choom-x86_64.bin"), b"BINARY-CONTENT").unwrap();
+
+    let app = App::new(
+        Config {
+            downloads_dir: Some(dir.clone()),
+            ..Config::default()
+        },
+        "SHA256:test".to_string(),
+    );
+
+    // A clean, whitelisted name streams back with an attachment disposition.
+    let resp = get(&app, "/download/choom-x86_64.bin").await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    assert_eq!(
+        resp.headers()
+            .get("content-disposition")
+            .unwrap()
+            .to_str()
+            .unwrap(),
+        "attachment; filename=\"choom-x86_64.bin\""
+    );
+    assert_eq!(body_string(resp).await, "BINARY-CONTENT");
+
+    // Names outside `[A-Za-z0-9._-]` are rejected before touching the filesystem. Illegal
+    // URI characters are percent-encoded here; axum decodes them back before the handler,
+    // so it is the filename whitelist (not the HTTP layer) that rejects them.
+    for bad in [
+        "/download/bad%20name.bin", // space
+        "/download/evil%22%3Bdrop", // `";`
+        "/download/x%0d%0aSet-Cookie:%20y", // CR/LF header injection attempt
+        "/download/..",
+        "/download/.",
+    ] {
+        assert_eq!(
+            get(&app, bad).await.status(),
+            StatusCode::BAD_REQUEST,
+            "must reject {bad:?}"
+        );
+    }
+    // A well-formed but nonexistent name is a clean 404 (not a 500).
+    assert_eq!(
+        get(&app, "/download/missing.bin").await.status(),
+        StatusCode::NOT_FOUND
+    );
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+/// `/metrics` is operator-internal: it must NOT be reachable on the public web router, but
+/// IS served by the dedicated metrics router (bound separately, e.g. on loopback).
+#[tokio::test]
+async fn metrics_is_off_the_public_web_router() {
+    let _ = choom_server::render_metrics(); // install the recorder
+    let app = App::new(Config::default(), "SHA256:test".to_string());
+
+    assert_eq!(
+        get(&app, "/metrics").await.status(),
+        StatusCode::NOT_FOUND,
+        "/metrics must not be exposed on the public web view"
+    );
+
+    let resp = metrics_router(app.clone())
+        .oneshot(Request::get("/metrics").body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    assert!(resp
+        .headers()
+        .get("content-type")
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .contains("text/plain"));
 }
 
 /// The viewer page must start the player with `autoPlay: true`. Without it the

@@ -79,8 +79,12 @@ top-level `{cols,rows}` header then absolute-time `[t,"o",data]` events (the pla
 WS driver doesn't consume the v3 file format). It is structurally output-only (the WS
 ignores all inbound frames). Auth is the token in the URL — no cookies; responses carry
 hardening headers (`Referrer-Policy: no-referrer`, `X-Content-Type-Options`,
-`X-Frame-Options`, CSP). Other routes: landing `/`, recording `/s/<ro-token>/cast`,
-prebuilt binaries `/download`, metrics `/metrics`.
+`X-Frame-Options`, CSP — `object-src/base-uri/frame-ancestors 'none'`). Other routes:
+landing `/`, recording `/s/<ro-token>/cast`, prebuilt binaries `/download`. File routes
+(`/cast`, `/download/{file}`) stream from disk (never read whole into memory) and share a
+bounded download-concurrency slot pool, so the web view can't be made a memory/bandwidth
+amplifier; `/download/{file}` names are whitelisted to `[A-Za-z0-9._-]`. Metrics are not
+on this listener (see below).
 
 ## Recording
 
@@ -92,9 +96,10 @@ pruned hourly by age and total size.
 ## Observability
 
 `tracing` structured logs (`CHOOM_LOG_FORMAT=json` for pod-log aggregation) — no full
-tokens logged. A Prometheus recorder exposes `/metrics`: sessions created/active,
-viewers joined/active, bytes relayed, tokens rejected, rate-limit and untrusted-host
-drops. Graceful drain on `SIGTERM` (stop accepting, end sessions, exit) for clean
+tokens logged. A Prometheus recorder exposes `/metrics` on its own operator-internal
+listener (`--metrics-addr`, off by default; keep it off the public web port and bind it
+to loopback/a private interface): sessions created/active, viewers joined/active, bytes
+relayed, tokens rejected, rate-limit and untrusted-host drops. Graceful drain on `SIGTERM` (stop accepting, end sessions, exit) for clean
 rolling restarts.
 
 ## Why no tmux

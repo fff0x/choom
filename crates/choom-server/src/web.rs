@@ -8,6 +8,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Instant;
 
+use axum::body::Body;
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::{Path, State};
 use axum::http::{header, HeaderValue, Method, StatusCode};
@@ -17,6 +18,7 @@ use axum::routing::get;
 use axum::Router;
 use choom_proto::{Mode, Transport};
 use futures::{SinkExt, StreamExt};
+use tokio_util::io::ReaderStream;
 use tracing::info;
 
 use crate::asciicast::{self, Code};
@@ -33,6 +35,14 @@ pub fn router(app: Arc<App>) -> Router {
         .route("/assets/asciinema-player.css", get(asset_css))
         .route("/download", get(download_index))
         .route("/download/{file}", get(download_file))
+        .layer(middleware::from_fn(security_headers))
+        .with_state(app)
+}
+
+/// Build the (separate) metrics router. Kept off [`router`] so `/metrics` is never exposed
+/// on the public web listener — it is operator-internal and bound separately (loopback).
+pub fn metrics_router(app: Arc<App>) -> Router {
+    Router::new()
         .route("/metrics", get(metrics))
         .layer(middleware::from_fn(security_headers))
         .with_state(app)
@@ -43,6 +53,14 @@ pub async fn serve_web(app: Arc<App>, addr: SocketAddr) -> anyhow::Result<()> {
     let listener = tokio::net::TcpListener::bind(addr).await?;
     info!(%addr, "choom web view listening");
     axum::serve(listener, router(app)).await?;
+    Ok(())
+}
+
+/// Bind and serve the operator-internal Prometheus endpoint until the process exits.
+pub async fn serve_metrics(app: Arc<App>, addr: SocketAddr) -> anyhow::Result<()> {
+    let listener = tokio::net::TcpListener::bind(addr).await?;
+    info!(%addr, "choom metrics endpoint listening");
+    axum::serve(listener, metrics_router(app)).await?;
     Ok(())
 }
 
@@ -67,8 +85,15 @@ async fn security_headers(req: axum::extract::Request, next: Next) -> Response {
             // as WebAssembly, which CSP blocks without it (and `'unsafe-inline'` does not
             // cover it). It is the narrow directive that allows WASM only — not general
             // `eval()` — so it stays tight.
+            // `object-src/base-uri/frame-ancestors 'none'` are pure tighten-only additions
+            // (the page embeds no plugins, sets no <base>, and must never be framed —
+            // consistent with `X-Frame-Options: DENY`). NOTE: `script-src 'unsafe-inline'`
+            // and the broad `connect-src ws: wss:` are still here; dropping them (script
+            // hash/nonce + `connect-src 'self'`) needs a browser check that the live player
+            // keeps working, so it's a deliberate, documented follow-up.
             "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; \
-             style-src 'self' 'unsafe-inline'; connect-src 'self' ws: wss:",
+             style-src 'self' 'unsafe-inline'; connect-src 'self' ws: wss:; \
+             object-src 'none'; base-uri 'none'; frame-ancestors 'none'",
         ),
     );
     res
@@ -164,20 +189,51 @@ async fn cast_download(
             Err(_) => (StatusCode::NOT_FOUND, "recording unavailable").into_response(),
         };
     }
-    match tokio::fs::read(&path).await {
-        Ok(bytes) => (
-            [
-                (header::CONTENT_TYPE, "application/x-asciicast"),
-                (
-                    header::CONTENT_DISPOSITION,
-                    "attachment; filename=\"session.cast\"",
-                ),
-            ],
-            bytes,
+    // Stream the file instead of reading it whole into memory: a recording has no per-file
+    // size cap, so a full read would let many parallel `/cast` requests exhaust RAM.
+    stream_file(
+        &app,
+        &path,
+        "application/x-asciicast",
+        Some("session.cast"),
+    )
+    .await
+}
+
+/// Stream a file from disk to the client (never read whole into memory), holding a download
+/// slot for the full body so the number of concurrent downloads stays bounded. `disposition`
+/// is the already-sanitised `Content-Disposition` filename, if any.
+async fn stream_file(
+    app: &App,
+    path: &std::path::Path,
+    content_type: &'static str,
+    disposition: Option<&str>,
+) -> Response {
+    let Ok(permit) = app.downloads_inflight.clone().try_acquire_owned() else {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "too many concurrent downloads, retry shortly",
         )
-            .into_response(),
-        Err(_) => (StatusCode::NOT_FOUND, "recording unavailable").into_response(),
+            .into_response();
+    };
+    let Ok(file) = tokio::fs::File::open(path).await else {
+        return (StatusCode::NOT_FOUND, "file unavailable").into_response();
+    };
+    // The closure owns `permit`, so the download slot is released only when the body
+    // stream is fully sent (or the client drops and the stream is dropped).
+    let stream = ReaderStream::new(file).map(move |chunk| {
+        let _slot = &permit;
+        chunk
+    });
+    let mut res = Body::from_stream(stream).into_response();
+    let h = res.headers_mut();
+    h.insert(header::CONTENT_TYPE, HeaderValue::from_static(content_type));
+    if let Some(name) = disposition {
+        if let Ok(v) = HeaderValue::from_str(&format!("attachment; filename=\"{name}\"")) {
+            h.insert(header::CONTENT_DISPOSITION, v);
+        }
     }
+    res
 }
 
 // Vendored asciinema-player (the live web view's renderer), served self-hosted so the
@@ -222,11 +278,13 @@ async fn download_index(State(app): State<Arc<App>>) -> Response {
             .collect();
         names.sort();
         for name in names {
-            // name is a single path component; href-encode the obvious specials.
-            let safe = name.replace('"', "%22");
-            items.push_str(&format!(
-                "<li><a href=\"/download/{safe}\">{name}</a></li>\n"
-            ));
+            // The filename comes off the filesystem (operator-controlled, but still
+            // untrusted from this page's POV) and lands in HTML — escape it so a crafted
+            // name like `<img src=x onerror=…>` is rendered as text, not executed (stored
+            // XSS). Only whitelisted names (see `download_file`) are actually downloadable;
+            // we still link + escape every listed name.
+            let esc = html_escape(&name);
+            items.push_str(&format!("<li><a href=\"/download/{esc}\">{esc}</a></li>\n"));
         }
     }
     if items.is_empty() {
@@ -244,23 +302,41 @@ async fn download_file(State(app): State<Arc<App>>, Path(file): Path<String>) ->
     let Some(dir) = &app.cfg.downloads_dir else {
         return (StatusCode::NOT_FOUND, "downloads not configured").into_response();
     };
-    if file.is_empty() || file.contains('/') || file.contains("..") {
+    // Whitelist the name to `[A-Za-z0-9._-]` (and reject `.`/`..`). This subsumes the old
+    // `/`/`..` check and additionally blocks anything that could break out of the
+    // `Content-Disposition` quoting or inject a header (`"`, CR/LF, …).
+    if !is_safe_filename(&file) {
         return (StatusCode::BAD_REQUEST, "bad filename").into_response();
     }
-    match tokio::fs::read(dir.join(&file)).await {
-        Ok(bytes) => (
-            [
-                (header::CONTENT_TYPE, "application/octet-stream".to_string()),
-                (
-                    header::CONTENT_DISPOSITION,
-                    format!("attachment; filename=\"{file}\""),
-                ),
-            ],
-            bytes,
-        )
-            .into_response(),
-        Err(_) => (StatusCode::NOT_FOUND, "no such file").into_response(),
+    // Stream (don't read whole into memory) so large binaries can't be a memory amplifier.
+    stream_file(&app, &dir.join(&file), "application/octet-stream", Some(&file)).await
+}
+
+/// HTML-escape the five significant characters so a string is safe in element text and in
+/// a double-quoted attribute.
+fn html_escape(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        match c {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '"' => out.push_str("&quot;"),
+            '\'' => out.push_str("&#39;"),
+            _ => out.push(c),
+        }
     }
+    out
+}
+
+/// A safe single download filename: non-empty, only `[A-Za-z0-9._-]`, and not `.`/`..`.
+fn is_safe_filename(name: &str) -> bool {
+    !name.is_empty()
+        && name != "."
+        && name != ".."
+        && name
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-'))
 }
 
 /// `GET /metrics` — Prometheus exposition (unauthenticated counters only, no tokens).

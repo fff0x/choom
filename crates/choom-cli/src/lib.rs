@@ -45,6 +45,9 @@ struct Cli {
 }
 
 #[derive(Subcommand)]
+// The variants differ in size (server takes many flags), but this enum is parsed exactly
+// once at startup — the size delta is irrelevant, and boxing would only obscure the args.
+#[allow(clippy::large_enum_variant)]
 enum Cmd {
     /// Run the central relay.
     Server(ServerArgs),
@@ -96,6 +99,10 @@ struct ServerArgs {
     /// Public web URL advertised to hosts (e.g. behind a TLS gateway).
     #[arg(long, short = 'W', env = "CHOOM_WEB_URL")]
     web_url: Option<String>,
+    /// Serve the Prometheus `/metrics` endpoint on this address (omit to disable). Keep it
+    /// off the public web view — bind to loopback (e.g. 127.0.0.1:9090) and scrape there.
+    #[arg(long, env = "CHOOM_METRICS_ADDR")]
+    metrics_addr: Option<SocketAddr>,
     /// Global cap on concurrent sessions [default: 200].
     #[arg(long)]
     max_sessions: Option<usize>,
@@ -140,6 +147,7 @@ struct ServerFile {
     port: Option<u16>,
     web: Option<SocketAddr>,
     web_url: Option<String>,
+    metrics_addr: Option<SocketAddr>,
     max_sessions: Option<usize>,
     max_viewers: Option<usize>,
     rate_limit: Option<u32>,
@@ -180,6 +188,7 @@ fn resolve_server(a: ServerArgs) -> Result<Config> {
         advertise_port: a.port.or(f.port).unwrap_or(proto::DEFAULT_SSH_PORT),
         web_addr: a.web.or(f.web),
         web_url: a.web_url.or(f.web_url),
+        metrics_addr: a.metrics_addr.or(f.metrics_addr),
         max_sessions: a
             .max_sessions
             .or(f.max_sessions)

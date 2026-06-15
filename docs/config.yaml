@@ -8,6 +8,9 @@ host: choom.example.com           # -H           FQDN advertised in the share li
 port: 2200                        # -p           SSH port advertised in the links
 web: "0.0.0.0:8080"               # -w           web view bind address (omit to disable)
 web_url: https://choom.example.com  # -W         public URL advertised (behind a TLS gateway)
+metrics_addr: "127.0.0.1:9090"    # --metrics-addr  operator-internal Prometheus endpoint;
+                                  #              keep it OFF the public web port — bind to
+                                  #              loopback/private iface (omit = disabled)
 
 # host gating
 use_default_key: true             # false on a private relay (== --no-default-key)
