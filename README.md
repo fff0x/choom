@@ -33,17 +33,20 @@ cargo build --release        # -> target/release/choom
 Share your shell on a relay (host prints the share links):
 
 ```sh
-choom host -s your.relay
+choom host -s your.relay -p 2200
 ```
 
 ```
 Welcome, Choomba, your shell is now shared!
 Share a link below; viewers connect with their ssh client.
 
-  Read-only:  ssh <ro-token>@your.relay
-  Read-write: ssh <rw-token>@your.relay  (full shell access!)
+  Read-only:  ssh -p 2200 <ro-token>@your.relay
+  Read-write: ssh -p 2200 <rw-token>@your.relay  (full shell access!)
   Web (RO):   https://your.relay/s/<ro-token>
 ```
+
+The `-p 2200` matches the relay's advertised port; the banner prints it for you (and
+omits it when the relay is on the default SSH port 22, like `choom.sh`).
 
 Run your own relay:
 
@@ -117,6 +120,11 @@ Full design: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
   setup payload) and **disconnects that viewer with a hint** — so they can't flood the
   host — but you still need plain `ssh` to view. If your `ssh` is aliased to the kitten,
   call the real binary (e.g. `\ssh` or `/usr/bin/ssh`).
+- **Port**: connect on the relay's SSH port. The share banner prints the exact `ssh`
+  command — it includes **`-p <port>`** whenever the relay isn't on the standard SSH
+  port (22). The public **`choom.sh` is reachable on port 22**, so `ssh <token>@choom.sh`
+  needs no `-p`; a self-hosted relay on `2200` is `ssh -p 2200 <token>@host`. (Without the
+  right port, `ssh <token>@host` hits whatever sshd is on port 22 and asks for a password.)
 - **Shared size**: the terminal is sized to the **smallest read-write viewer** so
   everyone sees the whole screen, so the host's shell repaints (and its cursor moves)
   when a smaller read-write viewer joins. Read-only/web viewers never resize the host.
