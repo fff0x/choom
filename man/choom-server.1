@@ -4,7 +4,7 @@
 .SH NAME
 choom\-server \- Run the central relay
 .SH SYNOPSIS
-\fBchoom\-server\fR [\fB\-c\fR|\fB\-\-config\fR] [\fB\-\-ssh\-addr\fR] [\fB\-H\fR|\fB\-\-host\fR] [\fB\-p\fR|\fB\-\-port\fR] [\fB\-w\fR|\fB\-\-web\fR] [\fB\-W\fR|\fB\-\-web\-url\fR] [\fB\-\-max\-sessions\fR] [\fB\-\-max\-viewers\fR] [\fB\-\-rate\-limit\fR] [\fB\-a\fR|\fB\-\-authorized\-keys\fR] [\fB\-\-no\-default\-key\fR] [\fB\-r\fR|\fB\-\-record\-dir\fR] [\fB\-\-record\-all\fR] [\fB\-\-record\-max\-age\-days\fR] [\fB\-\-record\-max\-mb\fR] [\fB\-\-downloads\fR] [\fB\-h\fR|\fB\-\-help\fR] 
+\fBchoom\-server\fR [\fB\-c\fR|\fB\-\-config\fR] [\fB\-\-ssh\-addr\fR] [\fB\-H\fR|\fB\-\-host\fR] [\fB\-p\fR|\fB\-\-port\fR] [\fB\-w\fR|\fB\-\-web\fR] [\fB\-W\fR|\fB\-\-web\-url\fR] [\fB\-\-max\-sessions\fR] [\fB\-\-max\-viewers\fR] [\fB\-\-rate\-limit\fR] [\fB\-a\fR|\fB\-\-authorized\-keys\fR] [\fB\-\-no\-default\-key\fR] [\fB\-r\fR|\fB\-\-record\-dir\fR] [\fB\-\-record\-all\fR] [\fB\-\-record\-max\-age\-days\fR] [\fB\-\-record\-max\-mb\fR] [\fB\-\-downloads\fR] [\fB\-\-host\-key\fR] [\fB\-h\fR|\fB\-\-help\fR] 
 .SH DESCRIPTION
 Run the central relay
 .SH OPTIONS
@@ -76,6 +76,12 @@ Cap total recordings size in MB, oldest first, 0 = no limit [default: 500]
 Directory of prebuilt binaries to serve at `/download`
 .RS
 May also be specified with the \fBCHOOM_DOWNLOADS\fR environment variable. 
+.RE
+.TP
+\fB\-\-host\-key\fR \fI<HOST_KEY>\fR
+Persistent SSH host\-key file (generated if missing) for a stable fingerprint across restarts; default is an ephemeral key
+.RS
+May also be specified with the \fBCHOOM_HOST_KEY\fR environment variable. 
 .RE
 .TP
 \fB\-h\fR, \fB\-\-help\fR

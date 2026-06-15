@@ -64,8 +64,13 @@ Every flag also reads an env var, so you can configure it the 12-factor way:
 | `CHOOM_WEB_ADDR` | `-w` (web bind; unset = no web) | — |
 | `CHOOM_WEB_URL` | `-W` (public web URL) | — |
 | `CHOOM_RECORD_DIR` | `-r` (enables recording) | — |
+| `CHOOM_HOST_KEY` | `--host-key` (persistent SSH host key) | ephemeral |
 | `CHOOM_LOG_FORMAT` | `json` for structured logs | text |
 | `RUST_LOG` | log level/filter | `info` |
+
+Set `CHOOM_HOST_KEY` (to a path on persistent storage) for a **stable host-key
+fingerprint** across restarts — otherwise viewers' `ssh` will warn that the host key
+changed when the pod is rescheduled.
 
 Limits, `--record-all`, `--no-default-key`, `-a authorized_keys`, and the retention
 caps are flags / YAML keys (see [config.yaml](config.yaml)). A YAML file is the

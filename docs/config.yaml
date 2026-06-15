@@ -13,6 +13,8 @@ web_url: https://choom.example.com  # -W         public URL advertised (behind a
 use_default_key: true             # false on a private relay (== --no-default-key)
 # authorized_keys:                # -a, OpenSSH pubkey lines allowed to host
 #   - "ssh-ed25519 AAAA... alice"
+# host_key: /var/lib/choom/host_key  # persistent SSH host key (stable fingerprint;
+#                                    # default: ephemeral, regenerated each start)
 
 # recording (hosts opt in with `choom host --record`)
 # record_dir: /var/lib/choom/rec  # -r, a directory enables recording storage (omit = off)

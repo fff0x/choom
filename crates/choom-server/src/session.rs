@@ -46,6 +46,9 @@ pub struct Config {
     pub use_default_key: bool,
     /// Directory of prebuilt binaries served at `/download`; `None` disables it.
     pub downloads_dir: Option<std::path::PathBuf>,
+    /// Path to a persistent SSH host key (loaded if present, else generated + saved at
+    /// `0600`). `None` generates an ephemeral key each start (the fingerprint changes).
+    pub host_key_path: Option<std::path::PathBuf>,
 }
 
 impl Default for Config {
@@ -66,6 +69,7 @@ impl Default for Config {
             authorized_keys: Vec::new(),
             use_default_key: true,
             downloads_dir: None,
+            host_key_path: None,
         }
     }
 }

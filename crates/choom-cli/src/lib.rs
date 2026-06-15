@@ -126,6 +126,10 @@ struct ServerArgs {
     /// Directory of prebuilt binaries to serve at `/download`.
     #[arg(long, env = "CHOOM_DOWNLOADS")]
     downloads: Option<PathBuf>,
+    /// Persistent SSH host-key file (generated if missing) for a stable fingerprint
+    /// across restarts; default is an ephemeral key.
+    #[arg(long, env = "CHOOM_HOST_KEY")]
+    host_key: Option<PathBuf>,
 }
 
 #[derive(Default, Deserialize)]
@@ -146,6 +150,7 @@ struct ServerFile {
     authorized_keys: Option<Vec<String>>,
     use_default_key: Option<bool>,
     downloads: Option<PathBuf>,
+    host_key: Option<PathBuf>,
 }
 
 fn resolve_server(a: ServerArgs) -> Result<Config> {
@@ -200,6 +205,7 @@ fn resolve_server(a: ServerArgs) -> Result<Config> {
         authorized_keys,
         use_default_key,
         downloads_dir: a.downloads.or(f.downloads),
+        host_key_path: a.host_key.or(f.host_key),
     })
 }
 

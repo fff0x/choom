@@ -74,11 +74,42 @@ pub async fn serve(cfg: Config) -> anyhow::Result<()> {
     serve_on(cfg, listener).await
 }
 
+/// Load a persistent SSH host key from `path`, generating + saving (`0600`) one if it
+/// does not exist — so the relay's fingerprint is stable across restarts.
+fn load_or_create_host_key(path: &std::path::Path) -> anyhow::Result<PrivateKey> {
+    if path.exists() {
+        return russh::keys::load_secret_key(path, None)
+            .with_context(|| format!("load host key {}", path.display()));
+    }
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir).ok();
+    }
+    let key = PrivateKey::random(&mut rand::rng(), Algorithm::Ed25519)?;
+    let pem = key.to_openssh(russh::keys::ssh_key::LineEnding::LF)?;
+    {
+        use std::io::Write as _;
+        use std::os::unix::fs::OpenOptionsExt as _;
+        let mut f = std::fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(path)
+            .with_context(|| format!("write host key {}", path.display()))?;
+        f.write_all(pem.as_bytes())?;
+    }
+    info!(path = %path.display(), "generated relay host key");
+    Ok(key)
+}
+
 /// Serve on an already-bound listener (used by tests on an ephemeral port).
 pub async fn serve_on(cfg: Config, listener: TcpListener) -> anyhow::Result<()> {
-    // TODO(M6): load a persistent host key from disk so the fingerprint is stable.
-    let host_key = PrivateKey::random(&mut rand::rng(), Algorithm::Ed25519)
-        .context("generate relay host key")?;
+    // Persistent host key if configured (stable fingerprint), else ephemeral.
+    let host_key = match &cfg.host_key_path {
+        Some(path) => load_or_create_host_key(path)?,
+        None => PrivateKey::random(&mut rand::rng(), Algorithm::Ed25519)
+            .context("generate relay host key")?,
+    };
     let fp = host_key
         .public_key()
         .fingerprint(Default::default())
