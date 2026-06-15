@@ -26,7 +26,12 @@ use crate::session::{App, CreateError, SessionShared};
 fn make_ready(app: &App, s: &SessionShared) -> Ready {
     Ready {
         ro: s.ro_token.clone(),
-        rw: s.rw_token.clone(),
+        // A read-only session advertises no RW link (the token grants only read anyway).
+        rw: if s.read_only {
+            String::new()
+        } else {
+            s.rw_token.clone()
+        },
         web: app
             .cfg
             .web_url
@@ -494,15 +499,30 @@ async fn host_loop(
         return;
     }
 
-    // New / Resume: obtain the session, then run the shared relay loop.
+    // New / Resume: obtain the session, then run the shared relay loop. A `SessionOpts`
+    // frame (name / read-only) may arrive *before* `Hello`; capture it and apply it when
+    // the session is created.
+    let mut pending_opts = crate::session::SessionOpts::default();
     let session = loop {
         match source.next().await {
+            Some(Ok(Frame::Control(Control::SessionOpts { name, read_only })))
+                if matches!(kind, HostKind::New) =>
+            {
+                pending_opts = crate::session::SessionOpts { name, read_only };
+                continue;
+            }
             Some(Ok(Frame::Control(Control::Hello { cols, rows })))
                 if matches!(kind, HostKind::New) =>
             {
-                match app.create_session(owner_key.clone(), cols, rows, to_host_tx.clone()) {
+                match app.create_session(
+                    owner_key.clone(),
+                    cols,
+                    rows,
+                    to_host_tx.clone(),
+                    pending_opts.clone(),
+                ) {
                     Ok(s) => {
-                        info!(sid = s.sid, ip = %ip, sessions = app.session_count(), "session created");
+                        info!(sid = s.sid, ip = %ip, name = ?s.name, read_only = s.read_only, sessions = app.session_count(), "session created");
                         let _ = to_host_tx
                             .send(Frame::Control(Control::Ready(make_ready(&app, &s))))
                             .await;

@@ -50,6 +50,8 @@ async fn clients_lists_viewers() {
         fingerprint: None,
         detach: false,
         verbose: false,
+        name: None,
+        read_only: false,
     };
     tokio::spawn(async move {
         let _ = run_host_for_test(cfg, ready_tx).await;

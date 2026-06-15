@@ -4,7 +4,7 @@
 .SH NAME
 choom\-clients \- List the viewers of your session
 .SH SYNOPSIS
-\fBchoom\-clients\fR [\fB\-i\fR|\fB\-\-identity\fR] [\fB\-\-no\-default\-key\fR] [\fB\-h\fR|\fB\-\-help\fR] 
+\fBchoom\-clients\fR [\fB\-i\fR|\fB\-\-identity\fR] [\fB\-\-no\-default\-key\fR] [\fB\-w\fR|\fB\-\-watch\fR] [\fB\-h\fR|\fB\-\-help\fR] 
 .SH DESCRIPTION
 List the viewers of your session
 .SH OPTIONS
@@ -15,9 +15,14 @@ Identity key used to create the session (must match the host\*(Aqs key)
 \fB\-\-no\-default\-key\fR
 The host did not use the bundled default key
 .TP
+\fB\-w\fR, \fB\-\-watch\fR
+Refresh the roster every 2s (live dashboard) until interrupted
+.TP
 \fB\-h\fR, \fB\-\-help\fR
 Print help (see a summary with \*(Aq\-h\*(Aq)
 .SH EXTRA
 EXAMPLES:
   List the viewers of your active session:
       choom clients
+  Keep a live, refreshing roster:
+      choom clients \-\-watch

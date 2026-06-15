@@ -65,6 +65,11 @@ pub struct HostConfig {
     /// Print connection diagnostics (resolved relay address, each connect attempt, the
     /// relay host-key fingerprint, the auth method) on the host's own screen.
     pub verbose: bool,
+    /// Optional human label for the session (shown on the host, in relay logs, and to
+    /// `choom clients`).
+    pub name: Option<String>,
+    /// Read-only session: only the read-only link is issued (no read-write link).
+    pub read_only: bool,
 }
 
 impl Default for HostConfig {
@@ -79,6 +84,8 @@ impl Default for HostConfig {
             fingerprint: None,
             detach: false,
             verbose: false,
+            name: None,
+            read_only: false,
         }
     }
 }
@@ -90,6 +97,10 @@ struct SessionFile {
     reconnect_id: String,
     server: String,
     port: u16,
+    /// Session label (host `--name`), so `choom clients` can show it. Optional for
+    /// backward compatibility with session files written by older hosts.
+    #[serde(default)]
+    name: Option<String>,
 }
 
 fn session_file_path() -> std::path::PathBuf {
@@ -335,6 +346,11 @@ async fn run_host(cfg: HostConfig, hooks: Hooks) -> Result<()> {
     // reconnecting with the reconnect id while the shell keeps running.
     let mut reconnect_id: Option<String> = None;
     let mut size = (init_cols, init_rows);
+    // Live viewer roster (drives the join/leave notices and the detached status block).
+    // Kept across reconnects: existing viewers stay attached, so their entries remain
+    // valid; only deltas (Join/Leave) on the new connection update it.
+    let mut roster: std::collections::BTreeMap<u64, Client> = std::collections::BTreeMap::new();
+    let mut detach_painted = false;
 
     'reconnect: loop {
         // If the shell is already gone there is nothing to share — never (re)connect.
@@ -494,6 +510,16 @@ async fn run_host(cfg: HostConfig, hooks: Hooks) -> Result<()> {
                     .ok();
             }
             None => {
+                // Session settings (name / read-only) must reach the relay *before*
+                // `Hello`, which is what creates the session.
+                if cfg.name.is_some() || cfg.read_only {
+                    to_relay_tx
+                        .send(Frame::Control(Control::SessionOpts {
+                            name: cfg.name.clone(),
+                            read_only: cfg.read_only,
+                        }))
+                        .ok();
+                }
                 to_relay_tx
                     .send(Frame::Control(Control::Hello {
                         cols: size.0,
@@ -537,9 +563,15 @@ async fn run_host(cfg: HostConfig, hooks: Hooks) -> Result<()> {
                                 reconnect_id: ready.id.clone(),
                                 server: cfg.server.clone(),
                                 port: cfg.port,
+                                name: cfg.name.clone(),
                             });
                             if hooks.banner {
                                 print_banner(&mut stdout, &ready, &cfg).await;
+                                // Detached mode owns the screen, so it can keep a live,
+                                // in-place status block under the banner.
+                                if cfg.detach {
+                                    paint_detach_status(&mut stdout, &roster, &mut detach_painted).await;
+                                }
                             }
                             if let Some(tx) = &hooks.ready_tx {
                                 let _ = tx.send(ready);
@@ -547,8 +579,14 @@ async fn run_host(cfg: HostConfig, hooks: Hooks) -> Result<()> {
                         }
                         Frame::Control(Control::Join(c)) => {
                             info!(viewer = c.id, ip = %c.ip, mode = ?c.mode, "viewer joined");
+                            roster.insert(c.id, c.clone());
+                            viewers_changed(&mut stdout, &hooks, &cfg, &roster, Some(&c), &mut detach_painted).await;
                         }
-                        Frame::Control(Control::Leave { id }) => info!(viewer = id, "viewer left"),
+                        Frame::Control(Control::Leave { id }) => {
+                            info!(viewer = id, "viewer left");
+                            roster.remove(&id);
+                            viewers_changed(&mut stdout, &hooks, &cfg, &roster, None, &mut detach_painted).await;
+                        }
                         Frame::Control(Control::Error { msg }) => {
                             warn!(%msg, "relay error");
                             writer.abort();
@@ -660,41 +698,204 @@ fn viewer_ssh_cmd(token: &str, host: &str, port: u16) -> String {
     }
 }
 
+/// Short labels reused by the banner, roster, and status displays.
+fn mode_short(m: Mode) -> &'static str {
+    match m {
+        Mode::Ro => "ro",
+        Mode::Rw => "rw",
+    }
+}
+
 async fn print_banner(stdout: &mut tokio::io::Stdout, ready: &Ready, cfg: &HostConfig) {
+    let title = match &cfg.name {
+        Some(n) => format!("\r\nWelcome, Choomba — session \x1b[1m{n}\x1b[0m is now shared!\r\n"),
+        None => "\r\nWelcome, Choomba, your shell is now shared!\r\n".to_string(),
+    };
     let web = ready
         .web
         .as_ref()
         .map(|u| format!("\r\n  Web (RO):   {u}"))
         .unwrap_or_default();
+    // In a read-only session the relay issues no RW link (`ready.rw` is empty); show a
+    // note instead of a read-write command.
+    let ro_cmd = viewer_ssh_cmd(&ready.ro, &ready.host, ready.port);
+    let rw_line = if cfg.read_only || ready.rw.is_empty() {
+        "\r\n  Read-write: (disabled — read-only session)".to_string()
+    } else {
+        let rw_cmd = viewer_ssh_cmd(&ready.rw, &ready.host, ready.port);
+        format!("\r\n  Read-write: {rw_cmd}  (full shell access!)")
+    };
     let detach = if cfg.detach {
         "\r\nDetached: your local terminal is not attached — the shell is driven by \
          read-write viewers. Ctrl-C here ends the session.\r\n"
     } else {
         ""
     };
-    let ro_cmd = viewer_ssh_cmd(&ready.ro, &ready.host, ready.port);
-    let rw_cmd = viewer_ssh_cmd(&ready.rw, &ready.host, ready.port);
     let banner = format!(
-        "\r\nWelcome, Choomba, your shell is now shared!\r\n\
+        "{title}\
          Share a link below; viewers connect with their ssh client.\r\n\r\n  \
-         Read-only:  {ro_cmd}\r\n  \
-         Read-write: {rw_cmd}  (full shell access!){web}\r\n{detach}\r\n",
+         Read-only:  {ro_cmd}{rw_line}{web}\r\n{detach}\r\n",
     );
     let _ = stdout.write_all(banner.as_bytes()).await;
     let _ = stdout.flush().await;
 }
 
-/// List the viewers of your session (`choom clients`).
-pub fn run_clients(identity: Option<std::path::PathBuf>, use_default_key: bool) -> Result<()> {
+/// React to a viewer roster change: a transient one-line notice when the host's terminal
+/// is attached, or an in-place status block when detached. `joined` is the new viewer on
+/// a join, `None` on a leave. No-op when neither attached nor detached (test/embedding).
+async fn viewers_changed(
+    stdout: &mut tokio::io::Stdout,
+    hooks: &Hooks,
+    cfg: &HostConfig,
+    roster: &std::collections::BTreeMap<u64, Client>,
+    joined: Option<&Client>,
+    detach_painted: &mut bool,
+) {
+    if hooks.attach_terminal {
+        let line = match joined {
+            Some(c) => format!(
+                "\r\n\x1b[2m[choom] viewer {} joined ({}) — {} watching\x1b[0m\r\n",
+                c.ip,
+                mode_short(c.mode),
+                roster.len()
+            ),
+            None => format!(
+                "\r\n\x1b[2m[choom] viewer left — {} watching\x1b[0m\r\n",
+                roster.len()
+            ),
+        };
+        let _ = stdout.write_all(line.as_bytes()).await;
+        let _ = stdout.flush().await;
+    } else if cfg.detach {
+        paint_detach_status(stdout, roster, detach_painted).await;
+    }
+}
+
+/// Draw (or redraw in place) the detached-mode live status block. Uses save/restore-cursor
+/// so each update overwrites the previous block instead of scrolling the screen.
+async fn paint_detach_status(
+    stdout: &mut tokio::io::Stdout,
+    roster: &std::collections::BTreeMap<u64, Client>,
+    painted: &mut bool,
+) {
+    let (mut ssh, mut web) = (0u32, 0u32);
+    for c in roster.values() {
+        match c.transport {
+            Transport::Ssh => ssh += 1,
+            Transport::Web => web += 1,
+        }
+    }
+    let mut s = String::new();
+    // First paint saves the cursor at the block's top; later paints restore to it and
+    // erase below before redrawing.
+    if *painted {
+        s.push_str("\x1b8\x1b[0J");
+    } else {
+        s.push_str("\x1b7");
+        *painted = true;
+    }
+    s.push_str(&format!(
+        "── choom · {} watching ({ssh} ssh, {web} web) ─────────────\r\n",
+        roster.len()
+    ));
+    for c in roster.values() {
+        s.push_str(&format!(
+            "   · {:<16} {:<3} {}x{}\r\n",
+            c.ip,
+            mode_short(c.mode),
+            c.cols,
+            c.rows
+        ));
+    }
+    let _ = stdout.write_all(s.as_bytes()).await;
+    let _ = stdout.flush().await;
+}
+
+/// Attach to a shared session as a viewer (`choom view <token|token@host>`). A thin
+/// convenience over stock `ssh`: it parses the token (and optional host), supplies the
+/// right `-p <port>`, and execs the real `ssh` binary — which also sidesteps shell
+/// wrappers like kitty's `ssh` kitten (they can't drive a relayed shell). The token's
+/// own RO/RW grant decides the access mode; no flag needed.
+pub fn run_view(
+    target: String,
+    server: Option<String>,
+    port: Option<u16>,
+    ssh_path: Option<String>,
+) -> Result<()> {
+    use std::os::unix::process::CommandExt as _;
+    let args = view_args(&target, server.as_deref(), port)?;
+    let ssh = ssh_path.unwrap_or_else(|| "ssh".to_string());
+    // exec replaces this process with ssh, handing it the terminal directly; it returns
+    // only if the exec itself failed (e.g. ssh not found).
+    let err = std::process::Command::new(&ssh).args(&args).exec();
+    Err(anyhow::Error::new(err).context(format!("failed to run `{ssh}` (try --ssh-path)")))
+}
+
+/// Build the `ssh` argument vector for `choom view`: `<token>` (host from `-s`/default) or
+/// `<token>@<host>`, with `-p <port>` unless the port is 22.
+fn view_args(target: &str, server: Option<&str>, port: Option<u16>) -> Result<Vec<String>> {
+    let (token, host) = match target.split_once('@') {
+        Some((t, h)) => (t, h.to_string()),
+        None => (
+            target,
+            server.unwrap_or(proto::DEFAULT_SERVER).to_string(),
+        ),
+    };
+    anyhow::ensure!(
+        !token.is_empty() && !host.is_empty(),
+        "expected <token> or <token>@<host>"
+    );
+    let port = port.unwrap_or_else(|| proto::default_port_for(&host));
+    let dest = format!("{token}@{host}");
+    Ok(if port == 22 {
+        vec![dest]
+    } else {
+        vec!["-p".to_string(), port.to_string(), dest]
+    })
+}
+
+/// List the viewers of your session (`choom clients`), optionally refreshing (`--watch`).
+pub fn run_clients(
+    identity: Option<std::path::PathBuf>,
+    use_default_key: bool,
+    watch: bool,
+) -> Result<()> {
     init_tracing();
     let rt = tokio::runtime::Runtime::new().context("build tokio runtime")?;
-    rt.block_on(clients_async(identity, use_default_key))
+    if !watch {
+        return rt.block_on(clients_async(identity, use_default_key));
+    }
+    rt.block_on(async move {
+        use std::io::Write as _;
+        loop {
+            // Clear the screen and repaint, so the roster updates in place like `watch(1)`.
+            print!("\x1b[2J\x1b[H");
+            if let Some(name) = session_label() {
+                println!("session: {name}");
+            }
+            match fetch_roster(identity.clone(), use_default_key).await {
+                Ok(roster) => print_roster(&roster),
+                Err(e) => println!("waiting for session… ({e:#})"),
+            }
+            let _ = std::io::stdout().flush();
+            tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+        }
+    })
 }
 
 async fn clients_async(identity: Option<std::path::PathBuf>, use_default_key: bool) -> Result<()> {
+    if let Some(name) = session_label() {
+        println!("session: {name}");
+    }
     let roster = fetch_roster(identity, use_default_key).await?;
     print_roster(&roster);
     Ok(())
+}
+
+/// The active session's label (host `--name`), read from the session file, if any.
+fn session_label() -> Option<String> {
+    let text = std::fs::read_to_string(session_file_path()).ok()?;
+    serde_json::from_str::<SessionFile>(&text).ok()?.name
 }
 
 /// Connect as the query role and fetch the active session's viewer roster.
@@ -811,5 +1012,29 @@ mod tests {
         );
         // On the default SSH port the `-p` is omitted for a clean link.
         assert_eq!(viewer_ssh_cmd("TOK", "choom.sh", 22), "ssh TOK@choom.sh");
+    }
+
+    #[test]
+    fn view_args_resolves_token_and_host() {
+        // Bare token -> default server (choom.sh on 22), so no `-p`.
+        assert_eq!(view_args("TOK", None, None).unwrap(), vec!["TOK@choom.sh"]);
+        // Bare token with an explicit non-default server -> default port 2200 + `-p`.
+        assert_eq!(
+            view_args("TOK", Some("relay.example.com"), None).unwrap(),
+            vec!["-p", "2200", "TOK@relay.example.com"]
+        );
+        // token@host carries its own host; an explicit port still wins.
+        assert_eq!(
+            view_args("TOK@relay.example.com", None, Some(2022)).unwrap(),
+            vec!["-p", "2022", "TOK@relay.example.com"]
+        );
+        // token@host on port 22 -> clean (no `-p`).
+        assert_eq!(
+            view_args("TOK@choom.sh", None, None).unwrap(),
+            vec!["TOK@choom.sh"]
+        );
+        // An empty token / host is rejected.
+        assert!(view_args("", None, None).is_err());
+        assert!(view_args("TOK@", None, None).is_err());
     }
 }

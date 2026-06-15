@@ -180,6 +180,12 @@ pub enum Control {
     /// The host's shell exited — end the session now (no reconnect grace period), so
     /// viewers detach immediately instead of hanging until the grace window lapses.
     Bye,
+    /// host -> relay: optional session settings, sent **once, before [`Control::Hello`]**
+    /// when creating a session. `read_only` makes the relay grant only the read-only
+    /// token (the read-write link is never issued); `name` is a human label shown on the
+    /// host, in logs, and to `choom clients`. Appended last to keep postcard variant
+    /// indices stable for older peers.
+    SessionOpts { name: Option<String>, read_only: bool },
 }
 
 /// Payload of [`Control::Ready`] — everything the host needs to print share links.
@@ -351,6 +357,10 @@ mod tests {
                 port: DEFAULT_SSH_PORT,
                 fp: "SHA256:abc".into(),
             })),
+            Frame::Control(Control::SessionOpts {
+                name: Some("deploy-prod".into()),
+                read_only: true,
+            }),
             Frame::Control(Control::Join(Client {
                 id: 1,
                 mode: Mode::Rw,

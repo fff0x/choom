@@ -184,6 +184,46 @@ async fn metrics_is_off_the_public_web_router() {
         .contains("text/plain"));
 }
 
+/// `/healthz` reports ready (200) while serving and unready (503) once draining.
+#[tokio::test]
+async fn healthz_reflects_draining() {
+    let app = App::new(Config::default(), "SHA256:test".to_string());
+    assert_eq!(get(&app, "/healthz").await.status(), StatusCode::OK);
+    app.set_draining();
+    assert_eq!(
+        get(&app, "/healthz").await.status(),
+        StatusCode::SERVICE_UNAVAILABLE
+    );
+}
+
+/// A read-only session never grants read-write: even the (never-advertised) rw token maps
+/// to read-only access, and the label is stored on the session.
+#[tokio::test]
+async fn read_only_session_downgrades_rw_token() {
+    use choom_proto::Mode;
+    use choom_server::session::SessionOpts;
+
+    let app = App::new(Config::default(), "SHA256:test".to_string());
+    let (to_host, _rx) = tokio::sync::mpsc::channel(4);
+    let session = app
+        .create_session(
+            "owner".to_string(),
+            80,
+            24,
+            to_host,
+            SessionOpts {
+                name: Some("demo".into()),
+                read_only: true,
+            },
+        )
+        .expect("create session");
+
+    assert!(session.read_only);
+    assert_eq!(session.name.as_deref(), Some("demo"));
+    assert!(matches!(app.lookup_token(&session.ro_token), Some((_, Mode::Ro))));
+    assert!(matches!(app.lookup_token(&session.rw_token), Some((_, Mode::Ro))));
+}
+
 /// The viewer page must start the player with `autoPlay: true`. Without it the
 /// asciinema-player shows a black poster and never even opens the WebSocket, which is
 /// the "session stays black in the browser" bug. The container also needs a height for
@@ -251,7 +291,7 @@ async fn download_button_and_cast_gated_on_recording() {
     // A real session with no recording (Config::default has no record_dir): /cast is 404.
     let (to_host, _rx) = tokio::sync::mpsc::channel(4);
     let session = app
-        .create_session("owner-key".to_string(), 80, 24, to_host)
+        .create_session("owner-key".to_string(), 80, 24, to_host, Default::default())
         .expect("create session");
     let cast = format!("/s/{}/cast", session.ro_token);
     assert_eq!(get(&app, &cast).await.status(), StatusCode::NOT_FOUND);
@@ -275,7 +315,7 @@ async fn recording_downloadable_after_session_ends() {
     let app = App::new(Config::default(), "SHA256:test".to_string());
     let (to_host, _rx) = tokio::sync::mpsc::channel(4);
     let session = app
-        .create_session("owner-key".to_string(), 80, 24, to_host)
+        .create_session("owner-key".to_string(), 80, 24, to_host, Default::default())
         .expect("create session");
     let ro = session.ro_token.clone();
 

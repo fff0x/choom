@@ -1,0 +1,41 @@
+.ie \n(.g .ds Aq \(aq
+.el .ds Aq '
+.TH choom-view 1  "choom-view " 
+.SH NAME
+choom\-view \- Attach to a shared session as a viewer (a convenience wrapper over `ssh`)
+.SH SYNOPSIS
+\fBchoom\-view\fR [\fB\-s\fR|\fB\-\-server\fR] [\fB\-p\fR|\fB\-\-port\fR] [\fB\-\-ssh\-path\fR] [\fB\-h\fR|\fB\-\-help\fR] <\fITARGET\fR> 
+.SH DESCRIPTION
+Attach to a shared session as a viewer (a convenience wrapper over `ssh`)
+.SH OPTIONS
+.TP
+\fB\-s\fR, \fB\-\-server\fR \fI<SERVER>\fR
+Relay hostname when the target is a bare token [default: choom.sh]
+.RS
+May also be specified with the \fBCHOOM_SERVER\fR environment variable. 
+.RE
+.TP
+\fB\-p\fR, \fB\-\-port\fR \fI<PORT>\fR
+Relay SSH port [default: 22 for choom.sh, else 2200]
+.RS
+May also be specified with the \fBCHOOM_PORT\fR environment variable. 
+.RE
+.TP
+\fB\-\-ssh\-path\fR \fI<SSH_PATH>\fR
+Path to the `ssh` binary to exec [default: ssh on PATH]
+.TP
+\fB\-h\fR, \fB\-\-help\fR
+Print help (see a summary with \*(Aq\-h\*(Aq)
+.TP
+<\fITARGET\fR>
+The share token, or `<token>@<host>`
+.SH EXTRA
+EXAMPLES:
+  Attach with a token (host from \-s/default):
+      choom view <token>
+  Attach with a full token@host:
+      choom view <token>@relay.example.com
+
+`choom view` is a convenience over plain `ssh`: it adds the right \-p and runs the
+real ssh binary (sidestepping wrappers like kitty\*(Aqs ssh kitten). The token decides
+read\-only vs read\-write — stock `ssh <token>@host` works just as well.
