@@ -21,11 +21,12 @@ recording.
 
 ## Nix
 
-The flake builds the binary with [crane](https://github.com/ipetkov/crane):
+The flake builds the binary with [crane](https://github.com/ipetkov/crane) (from a
+checkout, or your own flake reference):
 
 ```sh
-nix run  github:…/choom -- server -H choom.example.com -w 0.0.0.0:8080
-nix build github:…/choom          # -> result/bin/choom
+nix run   .#choom -- server -H choom.example.com -w 0.0.0.0:8080
+nix build .#choom                 # -> result/bin/choom
 ```
 
 The NixOS module runs it as a hardened systemd service (`DynamicUser`,
@@ -43,8 +44,8 @@ services.choom-relay = {
 };
 ```
 
-The flake also provides a dev shell (cargo, rustfmt, clippy, rust-analyzer) via
-`nix develop`.
+The flake also provides a dev shell (cargo, rustfmt, clippy, rust-analyzer, go-task)
+via `nix develop`.
 
 ## Run the binary
 
@@ -90,9 +91,9 @@ rolling restarts are graceful.
 
 ## Public vs. private relay
 
-- **Public** (like choom.sh): trusts the bundled default key, so anyone
-  with the standard client can host. Document the trust model — the operator can read
-  and inject (see the README security section). Put TLS in front of the web port.
+- **Public** (like choom.sh): trusts the bundled default key, so anyone with the
+  standard client can host. Be clear about the trust model — the operator can read and
+  inject (see [Security](../README.md#security)). Put TLS in front of the web port.
 - **Private**: `--no-default-key` (`use_default_key: false`) plus your own
   `-a authorized_keys`; tighten the limits. Hosts then need `-i <key>` (a key listed
   in `authorized_keys`).
@@ -111,8 +112,8 @@ rolling restarts are graceful.
 
 ```sh
 choom server --ssh-addr 127.0.0.1:2200 -H 127.0.0.1 -w 127.0.0.1:8080 &
-choom host -s 127.0.0.1 -H 127.0.0.1        # prints share links
-ssh <rw-token>@127.0.0.1 -p 2200            # a viewer attaches
-choom clients                               # list the viewers
-curl -s localhost:8080/metrics              # counters
+choom host -s 127.0.0.1                      # prints share links (advertised host = -H)
+ssh <rw-token>@127.0.0.1 -p 2200             # a viewer attaches
+choom clients                                # list the viewers
+curl -s localhost:8080/metrics               # counters
 ```

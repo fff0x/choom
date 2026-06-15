@@ -25,6 +25,8 @@ max_sessions: 200
 max_viewers: 50
 rate_limit: 60                    # new connections / source IP / minute (0 = off)
 
+# downloads: /var/lib/choom/dl    # serve prebuilt binaries at /download (omit = off)
+
 # --- host (choom host -c choom.yaml) ---
 # server: choom.example.com
 # port: 2200
@@ -33,3 +35,4 @@ rate_limit: 60                    # new connections / source IP / minute (0 = of
 # identity: ~/.ssh/id_ed25519     # -i, overrides the bundled default key
 # use_default_key: true           # false == --no-default-key
 # fingerprint: "SHA256:…"         # verify the relay host key on connect
+# detach: false                   # remote-support mode: don't attach the local terminal

@@ -10,9 +10,8 @@ Rust · GPL-3.0-or-later · [docs](docs/)
 > _choom_ (also _choomba_/_choombatta_): Neo-Afro-American slang for a friend or
 > family member — Cyberpunk 2077.
 
-> **2.0 (Rust).** This is the Rust rewrite of choom. It is a clean break from the
-> Python 1.x line — a 2.0 host needs a 2.0 relay (the wire protocol changed). See
-> the [CHANGELOG](CHANGELOG.md) for what changed.
+> **2.0** is a clean break from the Python 1.x line — a 2.0 host needs a 2.0 relay
+> (the wire protocol changed). See the [CHANGELOG](CHANGELOG.md) for what changed.
 
 - [Quick start](#quick-start)
 - [choom vs. tmate](#choom-vs-tmate)
@@ -117,7 +116,7 @@ YAML file (`-c file.yaml`); precedence is **CLI flag > file > default**.
 choom server [-H host] [-p port] [-w addr] [-W url]
              [-a authorized_keys] [--no-default-key]
              [-r dir] [--record-all] [--max-sessions N] [--max-viewers N] [--rate-limit N]
-choom host   [-s server] [-p port] [--shell SH] [--record]
+choom host   [-s server] [-p port] [--shell SH] [--record] [--detach]
              [-i identity] [--no-default-key] [--fingerprint SHA256:…]
 choom clients [-i identity] [--no-default-key]
 ```
