@@ -74,9 +74,17 @@ pub fn clamp_size(cols: u16, rows: u16) -> (u16, u16) {
 use base64::Engine as _;
 
 fn url_token(nbytes: usize) -> String {
-    let mut buf = vec![0u8; nbytes];
-    getrandom::getrandom(&mut buf).expect("OS RNG unavailable");
-    base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(&buf)
+    loop {
+        let mut buf = vec![0u8; nbytes];
+        getrandom::getrandom(&mut buf).expect("OS RNG unavailable");
+        let tok = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(&buf);
+        // A leading '-' makes `ssh <token>@host` (and `ssh -p N <token>@host`) parse the
+        // token as an option flag, breaking the share link. Reject those — the entropy
+        // cost is ~1/64 of tokens. ('_' is fine: it's a valid leading SSH-username char.)
+        if !tok.starts_with('-') {
+            return tok;
+        }
+    }
 }
 
 /// A fresh 128-bit share token, base64url (used as the viewer's SSH username).
@@ -279,6 +287,16 @@ mod tests {
             .bytes()
             .all(|c| c.is_ascii_alphanumeric() || c == b'-' || c == b'_'));
         assert!(new_reconnect_id().len() >= a.len());
+    }
+
+    #[test]
+    fn tokens_never_start_with_dash() {
+        // A leading '-' would make `ssh <token>@host` treat the token as an option flag.
+        // Check enough samples that the ~1/64 rejection path is exercised.
+        for _ in 0..2000 {
+            assert!(!new_token().starts_with('-'));
+            assert!(!new_reconnect_id().starts_with('-'));
+        }
     }
 
     #[test]

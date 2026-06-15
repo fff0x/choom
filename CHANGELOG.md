@@ -10,6 +10,8 @@ Notable changes, newest first. [Keep a Changelog](https://keepachangelog.com/) /
 - **Share links**: the printed `ssh` command now includes `-p <port>` whenever the relay
   isn't on port 22. Without it, `ssh <token>@host` hit port 22 — typically a *different*
   sshd — which prompted for a password instead of attaching the session.
+- **Tokens** never start with `-` anymore: such a token made `ssh <token>@host` parse the
+  token as an option flag, breaking the share link.
 
 - **Web view**: live sessions render again instead of a black screen. The
   asciinema-player was created without `autoPlay`, so it showed a black poster and
