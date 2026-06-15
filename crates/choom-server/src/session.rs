@@ -26,6 +26,10 @@ pub struct Config {
     pub web_url: Option<String>,
     /// Local address to serve the web view on; `None` disables it.
     pub web_addr: Option<SocketAddr>,
+    /// Local address to serve the Prometheus `/metrics` endpoint on; `None` disables it.
+    /// Kept off the public web listener on purpose — metrics are operator-internal. Bind
+    /// this to loopback (or a private interface) and scrape it there.
+    pub metrics_addr: Option<SocketAddr>,
     /// Global cap on concurrent sessions.
     pub max_sessions: usize,
     /// Per-session viewer cap.
@@ -59,6 +63,7 @@ impl Default for Config {
             advertise_port: proto::DEFAULT_SSH_PORT,
             web_url: None,
             web_addr: None,
+            metrics_addr: None,
             max_sessions: proto::DEFAULT_MAX_SESSIONS,
             max_viewers: proto::DEFAULT_MAX_VIEWERS,
             rate_per_min: proto::DEFAULT_RATE_PER_MIN,
@@ -341,7 +346,14 @@ pub struct App {
     /// Share token -> recording `.cast` path, kept past session end so the web download
     /// works after the live session is over (until the file is GC'd off disk).
     recordings: Mutex<HashMap<String, std::path::PathBuf>>,
+    /// Caps how many file downloads (`.cast` / `/download`) stream concurrently, so the
+    /// web view can't be turned into an open-file / bandwidth amplifier. Downloads stream
+    /// (no full-file read into memory), and this bounds the number in flight at once.
+    pub downloads_inflight: Arc<tokio::sync::Semaphore>,
 }
+
+/// Max concurrent file downloads served by the web view (`.cast` + `/download/{file}`).
+pub const MAX_CONCURRENT_DOWNLOADS: usize = 64;
 
 /// Why a session could not be created.
 #[derive(Debug)]
@@ -381,6 +393,7 @@ impl App {
             next_sid: AtomicU64::new(1),
             rate: Mutex::new(HashMap::new()),
             recordings: Mutex::new(HashMap::new()),
+            downloads_inflight: Arc::new(tokio::sync::Semaphore::new(MAX_CONCURRENT_DOWNLOADS)),
         })
     }
 
@@ -415,6 +428,17 @@ impl App {
         let now = Instant::now();
         let window = Duration::from_secs(60);
         let mut rate = self.rate.lock().unwrap();
+        // Opportunistic GC: a one-shot IP otherwise leaves a stale entry forever, so the
+        // map would grow unbounded under churn (IPv6, distributed scans) — a slow memory
+        // DoS. When the table gets large, drop every entry whose window has fully expired.
+        if rate.len() > 1024 {
+            rate.retain(|_, q| {
+                while q.front().is_some_and(|t| now.duration_since(*t) > window) {
+                    q.pop_front();
+                }
+                !q.is_empty()
+            });
+        }
         let hits = rate.entry(ip.to_string()).or_default();
         while hits
             .front()

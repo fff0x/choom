@@ -98,7 +98,10 @@ rolling restarts are graceful.
 
 - **Public** (like choom.sh): trusts the bundled default key, so anyone with the
   standard client can host. Be clear about the trust model — the operator can read and
-  inject (see [Security](../README.md#security)). Put TLS in front of the web port.
+  inject (see [Security](../README.md#security)). **Put TLS in front of the web port**:
+  the read-only web link carries the share token *in the URL*, so the web view must only
+  ever be reached over HTTPS/WSS (terminate TLS at a reverse proxy and advertise it with
+  `-W https://…`). Serving the web port as plain HTTP leaks the token on the wire.
 - **Private**: `--no-default-key` (`use_default_key: false`) plus your own
   `-a authorized_keys`; tighten the limits. Hosts then need `-i <key>` (a key listed
   in `authorized_keys`).
@@ -108,17 +111,21 @@ rolling restarts are graceful.
 - **Logs** — session create/close, host connect/disconnect/resume, viewer join/leave,
   rejected tokens, untrusted hosts, rate-limit drops. No full tokens are logged.
   `CHOOM_LOG_FORMAT=json` for aggregation.
-- **Metrics** — `GET /metrics` (on the web listener) exposes Prometheus counters:
+- **Metrics** — `GET /metrics` exposes Prometheus counters:
   `choom_sessions_created_total`, `choom_sessions_active`, `choom_viewers_active`,
   `choom_output_bytes_total`, `choom_tokens_rejected_total`,
-  `choom_rate_limited_total`, `choom_host_keys_rejected_total`.
+  `choom_rate_limited_total`, `choom_host_keys_rejected_total`. It is **operator-internal**
+  and served on its own listener — enable it with `--metrics-addr` (`CHOOM_METRICS_ADDR`)
+  and bind it to loopback or a private interface (e.g. `127.0.0.1:9090`). It is **never**
+  on the public web listener (`-w`). Leave it unset to disable.
 
 ## Verify end to end
 
 ```sh
-choom server --ssh-addr 127.0.0.1:2200 -H 127.0.0.1 -w 127.0.0.1:8080 &
+choom server --ssh-addr 127.0.0.1:2200 -H 127.0.0.1 -w 127.0.0.1:8080 \
+  --metrics-addr 127.0.0.1:9090 &
 choom host -s 127.0.0.1                      # prints share links (advertised host = -H)
 ssh <rw-token>@127.0.0.1 -p 2200             # a viewer attaches
 choom clients                                # list the viewers
-curl -s localhost:8080/metrics               # counters
+curl -s localhost:9090/metrics               # counters (internal listener)
 ```

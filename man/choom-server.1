@@ -4,7 +4,7 @@
 .SH NAME
 choom\-server \- Run the central relay
 .SH SYNOPSIS
-\fBchoom\-server\fR [\fB\-c\fR|\fB\-\-config\fR] [\fB\-\-ssh\-addr\fR] [\fB\-H\fR|\fB\-\-host\fR] [\fB\-p\fR|\fB\-\-port\fR] [\fB\-w\fR|\fB\-\-web\fR] [\fB\-W\fR|\fB\-\-web\-url\fR] [\fB\-\-max\-sessions\fR] [\fB\-\-max\-viewers\fR] [\fB\-\-rate\-limit\fR] [\fB\-a\fR|\fB\-\-authorized\-keys\fR] [\fB\-\-no\-default\-key\fR] [\fB\-r\fR|\fB\-\-record\-dir\fR] [\fB\-\-record\-all\fR] [\fB\-\-record\-max\-age\-days\fR] [\fB\-\-record\-max\-mb\fR] [\fB\-\-downloads\fR] [\fB\-\-host\-key\fR] [\fB\-h\fR|\fB\-\-help\fR] 
+\fBchoom\-server\fR [\fB\-c\fR|\fB\-\-config\fR] [\fB\-\-ssh\-addr\fR] [\fB\-H\fR|\fB\-\-host\fR] [\fB\-p\fR|\fB\-\-port\fR] [\fB\-w\fR|\fB\-\-web\fR] [\fB\-W\fR|\fB\-\-web\-url\fR] [\fB\-\-metrics\-addr\fR] [\fB\-\-max\-sessions\fR] [\fB\-\-max\-viewers\fR] [\fB\-\-rate\-limit\fR] [\fB\-a\fR|\fB\-\-authorized\-keys\fR] [\fB\-\-no\-default\-key\fR] [\fB\-r\fR|\fB\-\-record\-dir\fR] [\fB\-\-record\-all\fR] [\fB\-\-record\-max\-age\-days\fR] [\fB\-\-record\-max\-mb\fR] [\fB\-\-downloads\fR] [\fB\-\-host\-key\fR] [\fB\-h\fR|\fB\-\-help\fR] 
 .SH DESCRIPTION
 Run the central relay
 .SH OPTIONS
@@ -40,6 +40,12 @@ May also be specified with the \fBCHOOM_WEB_ADDR\fR environment variable.
 Public web URL advertised to hosts (e.g. behind a TLS gateway)
 .RS
 May also be specified with the \fBCHOOM_WEB_URL\fR environment variable. 
+.RE
+.TP
+\fB\-\-metrics\-addr\fR \fI<METRICS_ADDR>\fR
+Serve the Prometheus `/metrics` endpoint on this address (omit to disable). Keep it off the public web view — bind to loopback (e.g. 127.0.0.1:9090) and scrape there
+.RS
+May also be specified with the \fBCHOOM_METRICS_ADDR\fR environment variable. 
 .RE
 .TP
 \fB\-\-max\-sessions\fR \fI<MAX_SESSIONS>\fR

@@ -153,8 +153,10 @@ See `choom <cmd> --help` for the full list and env vars, and
   pruned by age/size. Download at `/s/<ro-token>/cast`; play with `asciinema play`.
 - **Config** — any options can come from YAML: `choom server -c choom.yaml` (CLI
   overrides). See [docs/config.yaml](docs/config.yaml).
-- **Logging / metrics** — `CHOOM_LOG_FORMAT=json` for structured logs;
-  `GET /metrics` exposes Prometheus counters (sessions, viewers, bytes, rejects).
+- **Logging / metrics** — `CHOOM_LOG_FORMAT=json` for structured logs; `GET /metrics`
+  exposes Prometheus counters (sessions, viewers, bytes, rejects) on its own
+  operator-internal listener (`--metrics-addr`, e.g. `127.0.0.1:9090`; off by default,
+  never on the public web port).
 
 ## Security
 
