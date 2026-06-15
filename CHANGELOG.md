@@ -5,6 +5,13 @@ Notable changes, newest first. [Keep a Changelog](https://keepachangelog.com/) /
 
 ## [2.2.0] - 2026-06-15
 
+### Added
+
+- **Download button on the web viewer** — when the session was recorded, the viewer page
+  shows a "Download recording" button (linking to `/s/<token>/cast`). It appears only when
+  a recording exists (the page probes `/cast` with `HEAD`), so unrecorded sessions show no
+  dead button.
+
 ### Fixed
 
 - **Web view renders at all** — the actual root cause of the black/garbled web view:

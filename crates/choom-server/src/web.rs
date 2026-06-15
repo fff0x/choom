@@ -10,7 +10,7 @@ use std::time::Instant;
 
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::{Path, State};
-use axum::http::{header, HeaderValue, StatusCode};
+use axum::http::{header, HeaderValue, Method, StatusCode};
 use axum::middleware::{self, Next};
 use axum::response::{Html, IntoResponse, Response};
 use axum::routing::get;
@@ -146,7 +146,11 @@ async fn stream_session(socket: WebSocket, session: Arc<SessionShared>) {
 }
 
 /// `GET /s/{token}/cast` — download this session's asciicast recording, if any.
-async fn cast_download(State(app): State<Arc<App>>, Path(token): Path<String>) -> Response {
+async fn cast_download(
+    State(app): State<Arc<App>>,
+    method: Method,
+    Path(token): Path<String>,
+) -> Response {
     let Some((session, _)) = app.lookup_token(&token) else {
         return (StatusCode::NOT_FOUND, "unknown or expired session").into_response();
     };
@@ -154,6 +158,14 @@ async fn cast_download(State(app): State<Arc<App>>, Path(token): Path<String>) -
     let Some(path) = path else {
         return (StatusCode::NOT_FOUND, "no recording for this session").into_response();
     };
+    // The viewer page probes with HEAD to decide whether to show the download button —
+    // answer from the file's existence without reading its (potentially large) contents.
+    if method == Method::HEAD {
+        return match tokio::fs::metadata(&path).await {
+            Ok(_) => [(header::CONTENT_TYPE, "application/x-asciicast")].into_response(),
+            Err(_) => (StatusCode::NOT_FOUND, "recording unavailable").into_response(),
+        };
+    }
     match tokio::fs::read(&path).await {
         Ok(bytes) => (
             [
@@ -291,14 +303,23 @@ const VIEWER_HTML: &str = r#"<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><title>choom — session</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="stylesheet" href="/assets/asciinema-player.css">
-<style>html,body{margin:0;height:100%;background:#000}#player{height:100%}</style>
+<style>html,body{margin:0;height:100%;background:#000}#player{height:100%}
+#dl{position:fixed;top:.5rem;right:.5rem;z-index:10;display:none;padding:.3em .6em;
+border-radius:4px;background:rgba(0,0,0,.6);color:#ddd;font:13px/1 system-ui,sans-serif;
+text-decoration:none;border:1px solid #444}#dl:hover{background:rgba(0,0,0,.85);color:#fff}</style>
 </head><body>
+<a id="dl" download>⤓ Download recording</a>
 <div id="player"></div>
 <script src="/assets/asciinema-player.min.js"></script>
 <script>
   const token = location.pathname.split('/').filter(Boolean).pop();
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
   const url = `${proto}://${location.host}/s/${token}/stream`;
+  // Show the download button only when this session was actually recorded.
+  const cast = `/s/${token}/cast`;
+  fetch(cast, { method: 'HEAD' }).then(r => {
+    if (r.ok) { const a = document.getElementById('dl'); a.href = cast; a.style.display = 'block'; }
+  }).catch(() => {});
   if (window.AsciinemaPlayer) {
     // autoPlay is essential: without it the player shows a black poster and does not
     // even open the WebSocket until clicked. fit:'both' needs the sized #player above.

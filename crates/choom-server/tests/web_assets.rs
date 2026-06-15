@@ -111,3 +111,40 @@ async fn csp_allows_webassembly() {
         "script-src must include 'wasm-unsafe-eval' for the player's WASM VT; got: {csp}"
     );
 }
+
+/// The viewer page carries a download button that the page reveals (via a `HEAD` probe of
+/// `/cast`) only when the session was recorded; an unrecorded session's `/cast` is 404.
+#[tokio::test]
+async fn download_button_and_cast_gated_on_recording() {
+    let app = App::new(Config::default(), "SHA256:test".to_string());
+
+    // The viewer page ships the (initially hidden) download button + its HEAD probe.
+    let body = axum::body::to_bytes(get(&app, "/s/sometoken").await.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let html = String::from_utf8_lossy(&body);
+    assert!(html.contains(r#"id="dl""#), "viewer page needs the download button");
+    assert!(
+        html.contains("method: 'HEAD'"),
+        "viewer page must HEAD-probe /cast to decide whether to show the button"
+    );
+
+    // A real session with no recording (Config::default has no record_dir): /cast is 404.
+    let (to_host, _rx) = tokio::sync::mpsc::channel(4);
+    let session = app
+        .create_session("owner-key".to_string(), 80, 24, to_host)
+        .expect("create session");
+    let cast = format!("/s/{}/cast", session.ro_token);
+    assert_eq!(get(&app, &cast).await.status(), StatusCode::NOT_FOUND);
+    let head = router(app.clone())
+        .oneshot(
+            Request::builder()
+                .method("HEAD")
+                .uri(&cast)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(head.status(), StatusCode::NOT_FOUND);
+}
