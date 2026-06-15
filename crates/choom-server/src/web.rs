@@ -63,7 +63,11 @@ async fn security_headers(req: axum::extract::Request, next: Next) -> Response {
     h.insert(
         header::CONTENT_SECURITY_POLICY,
         HeaderValue::from_static(
-            "default-src 'self'; script-src 'self' 'unsafe-inline'; \
+            // `'wasm-unsafe-eval'` is required: asciinema-player runs its VT engine (avt)
+            // as WebAssembly, which CSP blocks without it (and `'unsafe-inline'` does not
+            // cover it). It is the narrow directive that allows WASM only — not general
+            // `eval()` — so it stays tight.
+            "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; \
              style-src 'self' 'unsafe-inline'; connect-src 'self' ws: wss:",
         ),
     );

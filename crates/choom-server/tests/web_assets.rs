@@ -91,3 +91,23 @@ async fn viewer_page_autoplays_the_live_stream() {
         "the player container needs a height for fit:'both'"
     );
 }
+
+/// asciinema-player runs its VT engine as WebAssembly, so the CSP must allow it with
+/// `'wasm-unsafe-eval'` — otherwise the browser blocks `WebAssembly.instantiate()` and the
+/// terminal never renders (black screen / garbled output), even though the page and stream
+/// are fine.
+#[tokio::test]
+async fn csp_allows_webassembly() {
+    let app = App::new(Config::default(), "SHA256:test".to_string());
+    let resp = get(&app, "/s/sometoken").await;
+    let csp = resp
+        .headers()
+        .get("content-security-policy")
+        .expect("CSP header present")
+        .to_str()
+        .unwrap();
+    assert!(
+        csp.contains("'wasm-unsafe-eval'"),
+        "script-src must include 'wasm-unsafe-eval' for the player's WASM VT; got: {csp}"
+    );
+}

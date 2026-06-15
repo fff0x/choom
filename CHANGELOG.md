@@ -7,6 +7,11 @@ Notable changes, newest first. [Keep a Changelog](https://keepachangelog.com/) /
 
 ### Fixed
 
+- **Web view renders at all** — the actual root cause of the black/garbled web view:
+  asciinema-player runs its VT engine as **WebAssembly**, which the relay's
+  `Content-Security-Policy` blocked (`script-src` lacked `'wasm-unsafe-eval'`). The
+  browser refused `WebAssembly.instantiate()`, so the terminal never drew. Added the
+  narrow `'wasm-unsafe-eval'` directive (allows WASM only, not general `eval`).
 - **Web live view stays live.** The stream now opens with a single asciinema-player
   *reset* message (`{cols, rows, time, init}`) carrying the current screen as `init` and a
   numeric clock, instead of a bare `{cols,rows}` header plus the snapshot as a `t=0` event.
