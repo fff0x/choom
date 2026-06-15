@@ -23,6 +23,7 @@ use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::mpsc;
 use tokio_util::codec::Framed;
+use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 
 mod term;
@@ -272,10 +273,28 @@ async fn run_host(cfg: HostConfig, hooks: Hooks) -> Result<()> {
     let (init_cols, init_rows) = term::initial_size(hooks.attach_terminal);
     let (pty, pts) = pty_process::open().context("open pty")?;
     pty.resize(Size::new(init_rows, init_cols)).ok();
-    let mut child = pty_process::Command::new(&shell)
+    let child = pty_process::Command::new(&shell)
+        // SIGKILL the shell if this process tears down without an orderly exit.
+        .kill_on_drop(true)
         .spawn(pts)
         .with_context(|| format!("spawn shell {shell:?}"))?;
     let (mut pty_read, pty_write) = pty.into_split();
+
+    // Watch the shell in a dedicated task and cancel `shell_gone` when it exits. This is
+    // the authoritative "the shell is gone" signal: a standalone, never-recreated
+    // `child.wait()` future receives the SIGCHLD wakeup reliably (unlike one polled per
+    // select! iteration). The inner loop honours it, and — crucially — so does the
+    // reconnect path, so a shell that exits while the relay is flapping no longer leaves
+    // the host looping "relay connection lost" forever.
+    let shell_gone = CancellationToken::new();
+    {
+        let token = shell_gone.clone();
+        tokio::spawn(async move {
+            let mut child = child;
+            let _ = child.wait().await;
+            token.cancel();
+        });
+    }
 
     // PTY writer task: the single owner of the write half (input + resizes).
     let (pty_cmd_tx, mut pty_cmd_rx) = mpsc::unbounded_channel::<PtyCmd>();
@@ -318,6 +337,12 @@ async fn run_host(cfg: HostConfig, hooks: Hooks) -> Result<()> {
     let mut size = (init_cols, init_rows);
 
     'reconnect: loop {
+        // If the shell is already gone there is nothing to share — never (re)connect.
+        // Covers every path into a new iteration: a relay drop, a failed dial retry, or
+        // the shell exiting during the backoff sleep.
+        if shell_gone.is_cancelled() {
+            return Ok(());
+        }
         let user = if reconnect_id.is_some() {
             "resume"
         } else {
@@ -399,7 +424,7 @@ async fn run_host(cfg: HostConfig, hooks: Hooks) -> Result<()> {
                     format!("relay unreachable, reconnecting (attempt {attempt})… ({e:#})"),
                 )
                 .await;
-                tokio::time::sleep(RETRY_DELAY).await;
+                backoff(&shell_gone).await;
                 continue 'reconnect;
             }
             // No session yet: retry a bounded number of times, then give up cleanly
@@ -407,7 +432,7 @@ async fn run_host(cfg: HostConfig, hooks: Hooks) -> Result<()> {
             Err(e) => {
                 attempt += 1;
                 if attempt >= INITIAL_ATTEMPTS {
-                    let _ = child.start_kill();
+                    // The shell is killed on drop (kill_on_drop) as we return.
                     return Err(e.context(format!(
                         "relay {}:{} unreachable after {attempt} attempts",
                         cfg.server, cfg.port
@@ -419,7 +444,7 @@ async fn run_host(cfg: HostConfig, hooks: Hooks) -> Result<()> {
                     format!("{e:#}; retrying ({attempt}/{INITIAL_ATTEMPTS})…"),
                 )
                 .await;
-                tokio::time::sleep(RETRY_DELAY).await;
+                backoff(&shell_gone).await;
                 continue 'reconnect;
             }
         };
@@ -486,7 +511,7 @@ async fn run_host(cfg: HostConfig, hooks: Hooks) -> Result<()> {
         loop {
             tokio::select! {
                 n = pty_read.read(&mut pty_buf) => match n {
-                    Ok(0) | Err(_) => { writer.abort(); let _ = child.start_kill(); return Ok(()); }
+                    Ok(0) | Err(_) => { writer.abort(); return Ok(()); }
                     Ok(n) => {
                         let bytes = pty_buf[..n].to_vec();
                         if hooks.attach_terminal {
@@ -527,7 +552,6 @@ async fn run_host(cfg: HostConfig, hooks: Hooks) -> Result<()> {
                         Frame::Control(Control::Error { msg }) => {
                             warn!(%msg, "relay error");
                             writer.abort();
-                            let _ = child.start_kill();
                             return Ok(());
                         }
                         _ => {}
@@ -548,11 +572,16 @@ async fn run_host(cfg: HostConfig, hooks: Hooks) -> Result<()> {
                     to_relay_tx.send(Frame::Control(Control::HostSize { cols: size.0, rows: size.1 })).ok();
                 },
 
-                _ = child.wait() => { writer.abort(); let _ = child.start_kill(); return Ok(()); }
+                _ = shell_gone.cancelled() => { writer.abort(); return Ok(()); }
             }
         }
 
         writer.abort();
+        // The shell exited (possibly racing with the relay drop): there is nothing left
+        // to share, so stop instead of reconnecting forever.
+        if shell_gone.is_cancelled() {
+            return Ok(());
+        }
         if reconnect_id.is_some() {
             status(
                 &mut stdout,
@@ -561,12 +590,20 @@ async fn run_host(cfg: HostConfig, hooks: Hooks) -> Result<()> {
             )
             .await;
             attempt = 0;
-            tokio::time::sleep(RETRY_DELAY).await;
+            backoff(&shell_gone).await;
             continue 'reconnect;
         }
         // Lost the relay before a session was ever established: give up.
-        let _ = child.start_kill();
         return Ok(());
+    }
+}
+
+/// Back off between connect attempts, but wake immediately if the shell exits meanwhile
+/// (so a dead shell never waits out the full delay before the loop notices and stops).
+async fn backoff(shell_gone: &CancellationToken) {
+    tokio::select! {
+        _ = tokio::time::sleep(RETRY_DELAY) => {}
+        _ = shell_gone.cancelled() => {}
     }
 }
 

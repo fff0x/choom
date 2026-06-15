@@ -28,14 +28,19 @@ impl client::Handler for Cli {
 }
 
 async fn start_relay() -> SocketAddr {
+    start_relay_handle().await.0
+}
+
+/// Start a relay and also return its task handle, so a test can kill the relay mid-session.
+async fn start_relay_handle() -> (SocketAddr, tokio::task::JoinHandle<()>) {
     let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
         .await
         .unwrap();
     let addr = listener.local_addr().unwrap();
-    tokio::spawn(async move {
+    let handle = tokio::spawn(async move {
         let _ = serve_on(Config::default(), listener).await;
     });
-    addr
+    (addr, handle)
 }
 
 #[tokio::test]
@@ -110,5 +115,57 @@ async fn host_relay_viewer_roundtrip() {
     assert!(
         seen.contains("roundtrip-marker"),
         "viewer must see its keystrokes echoed by the shell; got {seen:?}"
+    );
+}
+
+/// If the shell exits while the relay is unreachable, the host must stop — not loop
+/// "relay connection lost" forever. (Regression: a shell that exited concurrently with a
+/// relay redeploy left the host reconnecting endlessly because the reconnect path never
+/// checked whether the local shell was still alive.)
+#[tokio::test]
+async fn host_stops_when_shell_exits_during_reconnect() {
+    let (relay, relay_task) = start_relay_handle().await;
+
+    // The `shell` is exec'd directly (no arg parsing), so use a tiny script that just
+    // sleeps and exits on its own shortly after the session is established.
+    let dir = std::env::temp_dir().join(format!("choom-e2e-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let script = dir.join("self-exit-shell.sh");
+    std::fs::write(&script, "#!/bin/sh\nsleep 1\n").unwrap();
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+
+    let (ready_tx, mut ready_rx) = mpsc::unbounded_channel();
+    let cfg = HostConfig {
+        server: relay.ip().to_string(),
+        port: relay.port(),
+        shell: Some(script.to_str().unwrap().to_string()),
+        record: false,
+        identity: None,
+        use_default_key: true,
+        fingerprint: None,
+        detach: false,
+        verbose: false,
+    };
+    let host = tokio::spawn(async move { run_host_for_test(cfg, ready_tx).await });
+
+    // Wait until the session exists (reconnect id set), then kill the relay so the host
+    // drops into its reconnect loop while the shell is still running.
+    timeout(Duration::from_secs(5), ready_rx.recv())
+        .await
+        .expect("host did not become ready")
+        .expect("ready channel closed");
+    relay_task.abort();
+
+    // The shell exits ~1s later; the host must then return promptly instead of
+    // reconnecting forever. Generous bound so slow CI still distinguishes "returns" from
+    // "loops forever".
+    let result = timeout(Duration::from_secs(10), host).await;
+    std::fs::remove_dir_all(&dir).ok();
+    assert!(
+        result.is_ok(),
+        "host kept reconnecting after the shell exited (infinite-loop regression)"
     );
 }

@@ -21,6 +21,10 @@ Notable changes, newest first. [Keep a Changelog](https://keepachangelog.com/) /
   runtime drop blocked on the uncancellable `tokio::io::stdin()` blocking read, so the
   process hung after the shell exited until the next keypress. Blocking threads are now
   abandoned on shutdown.
+- **Host**: a shell that exits while the relay connection is down or flapping no longer
+  leaves the host looping `relay connection lost; reconnecting…` forever. Shell exit is
+  now tracked by a dedicated watcher, and the reconnect path stops once the local shell
+  is gone (there is nothing left to share).
 
 ### Notes
 
