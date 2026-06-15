@@ -55,6 +55,7 @@ async fn host_relay_viewer_roundtrip() {
         use_default_key: true,
         fingerprint: None,
         detach: false,
+        verbose: false,
     };
     tokio::spawn(async move {
         let _ = run_host_for_test(cfg, ready_tx).await;

@@ -4,7 +4,7 @@
 .SH NAME
 choom\-host \- Share your local shell through a relay
 .SH SYNOPSIS
-\fBchoom\-host\fR [\fB\-c\fR|\fB\-\-config\fR] [\fB\-s\fR|\fB\-\-server\fR] [\fB\-p\fR|\fB\-\-port\fR] [\fB\-\-shell\fR] [\fB\-\-record\fR] [\fB\-i\fR|\fB\-\-identity\fR] [\fB\-\-no\-default\-key\fR] [\fB\-\-fingerprint\fR] [\fB\-\-detach\fR] [\fB\-h\fR|\fB\-\-help\fR] 
+\fBchoom\-host\fR [\fB\-c\fR|\fB\-\-config\fR] [\fB\-s\fR|\fB\-\-server\fR] [\fB\-p\fR|\fB\-\-port\fR] [\fB\-\-shell\fR] [\fB\-\-record\fR] [\fB\-i\fR|\fB\-\-identity\fR] [\fB\-\-no\-default\-key\fR] [\fB\-\-fingerprint\fR] [\fB\-\-detach\fR] [\fB\-v\fR|\fB\-\-verbose\fR] [\fB\-h\fR|\fB\-\-help\fR] 
 .SH DESCRIPTION
 Share your local shell through a relay
 .SH OPTIONS
@@ -41,6 +41,9 @@ Verify the relay\*(Aqs host\-key fingerprint (`SHA256:…`) on connect
 .TP
 \fB\-\-detach\fR
 Detached "remote\-support" mode: share the shell to viewers without attaching your local terminal (print the links, then relay; the shell is driven remotely)
+.TP
+\fB\-v\fR, \fB\-\-verbose\fR
+Print connection diagnostics (resolved relay address, connect attempts, the relay host\-key fingerprint, the auth method)
 .TP
 \fB\-h\fR, \fB\-\-help\fR
 Print help (see a summary with \*(Aq\-h\*(Aq)

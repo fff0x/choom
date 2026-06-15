@@ -247,6 +247,10 @@ struct HostArgs {
     /// your local terminal (print the links, then relay; the shell is driven remotely).
     #[arg(long)]
     detach: bool,
+    /// Print connection diagnostics (resolved relay address, connect attempts, the relay
+    /// host-key fingerprint, the auth method).
+    #[arg(long, short = 'v')]
+    verbose: bool,
 }
 
 #[derive(Default, Deserialize)]
@@ -260,6 +264,7 @@ struct HostFile {
     use_default_key: Option<bool>,
     fingerprint: Option<String>,
     detach: Option<bool>,
+    verbose: Option<bool>,
 }
 
 fn resolve_host(a: HostArgs) -> Result<HostConfig> {
@@ -281,6 +286,7 @@ fn resolve_host(a: HostArgs) -> Result<HostConfig> {
         use_default_key,
         fingerprint: a.fingerprint.or(f.fingerprint),
         detach: a.detach || f.detach.unwrap_or(false),
+        verbose: a.verbose || f.verbose.unwrap_or(false),
     })
 }
 

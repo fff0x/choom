@@ -34,7 +34,7 @@
           in
           craneLib.buildPackage {
             pname = "choom";
-            version = "2.0.0";
+            version = "2.0.1";
             # Use the full (git-tracked) flake source, not cleanCargoSource: the build
             # embeds non-Cargo files (the bundled default key, gzipped web assets) via
             # include_bytes!/include_str!, and postInstall needs the man pages.

@@ -120,10 +120,41 @@ impl Conn {
             _ => None,
         }
     }
+
+    /// Resolve a viewer token (the SSH username) to a session, becoming a viewer on
+    /// success. Shared by `auth_none` (keyless viewers — the common path) and
+    /// `auth_publickey` (a viewer whose client happened to offer a key first).
+    fn accept_token(&mut self, user: &str) -> Auth {
+        match self.app.lookup_token(user) {
+            Some((session, mode)) => {
+                self.role = Role::Viewer { session, mode };
+                Auth::Accept
+            }
+            None => {
+                warn!(ip = %self.peer_ip, "rejected unknown or expired token");
+                metrics::counter!("choom_tokens_rejected_total").increment(1);
+                reject()
+            }
+        }
+    }
 }
 
 impl russh::server::Handler for Conn {
     type Error = russh::Error;
+
+    /// Viewers carry no credential — the username *is* the unguessable token — so they
+    /// authenticate with the SSH `none` method: `ssh <token>@relay`, no key, no password.
+    /// (Hosts must present a key, so `none` is refused for them and the client falls
+    /// through to publickey.)
+    async fn auth_none(&mut self, user: &str) -> Result<Auth, Self::Error> {
+        if !self.rate_ok {
+            return Ok(reject());
+        }
+        if proto::is_host_user(user) {
+            return Ok(reject());
+        }
+        Ok(self.accept_token(user))
+    }
 
     async fn auth_publickey(&mut self, user: &str, key: &PublicKey) -> Result<Auth, Self::Error> {
         if !self.rate_ok {
@@ -147,19 +178,9 @@ impl russh::server::Handler for Conn {
             };
             Ok(Auth::Accept)
         } else {
-            // Viewer role: the username *is* the token; unknown -> auth fails (no open
-            // pre-auth state).
-            match self.app.lookup_token(user) {
-                Some((session, mode)) => {
-                    self.role = Role::Viewer { session, mode };
-                    Ok(Auth::Accept)
-                }
-                None => {
-                    warn!(ip = %self.peer_ip, "rejected unknown or expired token");
-                    metrics::counter!("choom_tokens_rejected_total").increment(1);
-                    Ok(reject())
-                }
-            }
+            // A viewer whose client offered a key before trying `none`; accept on a
+            // valid token all the same (the key is irrelevant — the token is the secret).
+            Ok(self.accept_token(user))
         }
     }
 

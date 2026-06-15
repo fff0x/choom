@@ -30,6 +30,16 @@ mod term;
 /// The bundled default private key (its public half is trusted by the public relay).
 const DEFAULT_ID: &str = include_str!("default_id");
 
+/// Per-attempt cap on the relay connect+auth handshake. Without it an unreachable relay
+/// (a dropped SYN) blocks on the OS connect timeout (~127s on Linux) with a blank,
+/// un-interruptible screen.
+const CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(8);
+/// Delay between connect attempts (initial dial and reconnects alike).
+const RETRY_DELAY: std::time::Duration = std::time::Duration::from_secs(2);
+/// How many times the initial dial is retried before giving up. Reconnects (after a
+/// session was established) retry indefinitely, since the local shell is still alive.
+const INITIAL_ATTEMPTS: u32 = 3;
+
 /// Host configuration.
 #[derive(Clone, Debug)]
 pub struct HostConfig {
@@ -51,6 +61,9 @@ pub struct HostConfig {
     /// viewers, but do NOT attach the host's local terminal (no raw mode, no local
     /// echo/keystrokes). The shell is driven only by read-write viewers.
     pub detach: bool,
+    /// Print connection diagnostics (resolved relay address, each connect attempt, the
+    /// relay host-key fingerprint, the auth method) on the host's own screen.
+    pub verbose: bool,
 }
 
 impl Default for HostConfig {
@@ -64,6 +77,7 @@ impl Default for HostConfig {
             use_default_key: true,
             fingerprint: None,
             detach: false,
+            verbose: false,
         }
     }
 }
@@ -161,6 +175,8 @@ enum PtyCmd {
 struct Cli {
     /// If set, the relay's host key must match this `SHA256:…` fingerprint.
     expected_fp: Option<String>,
+    /// Records the relay's actual host-key fingerprint, so `--verbose` can report it.
+    seen_fp: Arc<std::sync::Mutex<Option<String>>>,
 }
 
 impl client::Handler for Cli {
@@ -168,9 +184,10 @@ impl client::Handler for Cli {
     async fn check_server_key(&mut self, key: &PublicKey) -> Result<bool, Self::Error> {
         // No E2E (the relay sees cleartext by design); this only guards against MITM of
         // the host<->relay link when an expected fingerprint is configured.
+        let got = key.fingerprint(Default::default()).to_string();
+        *self.seen_fp.lock().unwrap() = Some(got.clone());
         match &self.expected_fp {
             Some(want) => {
-                let got = key.fingerprint(Default::default()).to_string();
                 if &got != want {
                     warn!(expected = %want, got = %got, "relay host-key fingerprint mismatch");
                 }
@@ -273,16 +290,20 @@ async fn run_host(cfg: HostConfig, hooks: Hooks) -> Result<()> {
 
     // --- host terminal + key (set up once, persist across reconnects) ---
     let key = Arc::new(resolve_key(cfg.identity.as_deref(), cfg.use_default_key)?);
-    let _raw = if hooks.attach_terminal {
-        term::enter_raw()
-    } else {
-        None
-    };
-    let mut stdin = (hooks.attach_terminal).then(tokio::io::stdin);
+    // Raw mode and stdin are claimed lazily, only after the first relay connect
+    // succeeds (below). While we are still dialing — possibly an unreachable relay —
+    // the terminal stays in cooked mode, so the shell prompt isn't hidden behind a
+    // blank screen and Ctrl-C still aborts instead of being swallowed as a keystroke.
+    let mut _raw_guard = None;
+    let mut stdin: Option<tokio::io::Stdin> = None;
     let mut stdout = tokio::io::stdout();
     let mut winch = term::winch_stream(hooks.attach_terminal);
     let mut pty_buf = [0u8; 8192];
     let mut stdin_buf = [0u8; 4096];
+    let mut established = false;
+    let mut attempt = 0u32;
+    // Captures the relay host-key fingerprint each connect, for `--verbose` reporting.
+    let seen_fp = Arc::new(std::sync::Mutex::new(None));
 
     // The PTY + shell outlive the relay connection: brief relay drops are survived by
     // reconnecting with the reconnect id while the shell keeps running.
@@ -295,9 +316,39 @@ async fn run_host(cfg: HostConfig, hooks: Hooks) -> Result<()> {
         } else {
             "new"
         };
+        if !established && attempt == 0 {
+            status(
+                &mut stdout,
+                hooks.banner,
+                format!("connecting to {}:{}…", cfg.server, cfg.port),
+            )
+            .await;
+        }
+        if cfg.verbose {
+            // Resolve up front so `-v` shows exactly which address(es) we dial — this is
+            // where an IPv6-only / stale-DNS relay becomes visible.
+            let resolved = match tokio::net::lookup_host((cfg.server.as_str(), cfg.port)).await {
+                Ok(addrs) => {
+                    let list = addrs.map(|a| a.to_string()).collect::<Vec<_>>().join(", ");
+                    if list.is_empty() {
+                        "no addresses".to_string()
+                    } else {
+                        list
+                    }
+                }
+                Err(e) => format!("lookup failed: {e}"),
+            };
+            status(
+                &mut stdout,
+                hooks.banner,
+                format!("resolved {} -> {resolved}", cfg.server),
+            )
+            .await;
+        }
         let connect = async {
             let handler = Cli {
                 expected_fp: cfg.fingerprint.clone(),
+                seen_fp: seen_fp.clone(),
             };
             let mut session = client::connect(
                 Arc::new(client::Config::default()),
@@ -315,18 +366,80 @@ async fn run_host(cfg: HostConfig, hooks: Hooks) -> Result<()> {
                 .await
                 .context("open channel")?;
             Ok::<_, anyhow::Error>((session, Framed::new(channel.into_stream(), FrameCodec)))
-        }
-        .await;
+        };
+        // Cap the whole connect+auth+channel handshake: an unreachable relay (dropped
+        // SYN) would otherwise block on the OS connect timeout (~127s) with no output
+        // and — once attached — no way to Ctrl-C out.
+        let connect = match tokio::time::timeout(CONNECT_TIMEOUT, connect).await {
+            Ok(r) => r,
+            Err(_) => Err(anyhow::anyhow!(
+                "connect to {}:{} timed out after {}s",
+                cfg.server,
+                cfg.port,
+                CONNECT_TIMEOUT.as_secs()
+            )),
+        };
 
         let (_session, framed) = match connect {
             Ok(x) => x,
+            // A session already exists: keep retrying — the shell is still alive and we
+            // want to resume it — but surface each attempt instead of failing silently.
             Err(e) if reconnect_id.is_some() => {
-                warn!(error = %e, "reconnect failed; retrying");
-                tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                attempt += 1;
+                status(
+                    &mut stdout,
+                    hooks.banner,
+                    format!("relay unreachable, reconnecting (attempt {attempt})… ({e:#})"),
+                )
+                .await;
+                tokio::time::sleep(RETRY_DELAY).await;
                 continue 'reconnect;
             }
-            Err(e) => return Err(e),
+            // No session yet: retry a bounded number of times, then give up cleanly
+            // instead of hanging. The shell was already spawned, so kill it on the way out.
+            Err(e) => {
+                attempt += 1;
+                if attempt >= INITIAL_ATTEMPTS {
+                    let _ = child.start_kill();
+                    return Err(e.context(format!(
+                        "relay {}:{} unreachable after {attempt} attempts",
+                        cfg.server, cfg.port
+                    )));
+                }
+                status(
+                    &mut stdout,
+                    hooks.banner,
+                    format!("{e:#}; retrying ({attempt}/{INITIAL_ATTEMPTS})…"),
+                )
+                .await;
+                tokio::time::sleep(RETRY_DELAY).await;
+                continue 'reconnect;
+            }
         };
+
+        if cfg.verbose {
+            let fp = seen_fp
+                .lock()
+                .unwrap()
+                .clone()
+                .unwrap_or_else(|| "unknown".to_string());
+            status(
+                &mut stdout,
+                hooks.banner,
+                format!("connected; relay host key {fp}; authenticated as `{user}` (publickey)"),
+            )
+            .await;
+        }
+
+        // First successful connect: only now claim the terminal. Raw mode stayed off
+        // while dialing, so an unreachable relay could still be aborted with Ctrl-C.
+        if !established {
+            established = true;
+            if hooks.attach_terminal {
+                _raw_guard = term::enter_raw();
+                stdin = Some(tokio::io::stdin());
+            }
+        }
         let (mut sink, mut source) = framed.split();
         let (to_relay_tx, mut to_relay_rx) = mpsc::unbounded_channel::<Frame>();
         let writer = tokio::spawn(async move {
@@ -434,14 +547,31 @@ async fn run_host(cfg: HostConfig, hooks: Hooks) -> Result<()> {
 
         writer.abort();
         if reconnect_id.is_some() {
-            warn!("relay connection lost; reconnecting…");
-            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+            status(
+                &mut stdout,
+                hooks.banner,
+                "relay connection lost; reconnecting…".into(),
+            )
+            .await;
+            attempt = 0;
+            tokio::time::sleep(RETRY_DELAY).await;
             continue 'reconnect;
         }
         // Lost the relay before a session was ever established: give up.
         let _ = child.start_kill();
         return Ok(());
     }
+}
+
+/// Print a one-line status/progress message to the host's screen, CRLF-terminated so it
+/// renders cleanly whether or not the terminal is in raw mode. Silent when `verbose` is
+/// false (tests / embedding) so it never pollutes captured output.
+async fn status(out: &mut tokio::io::Stdout, verbose: bool, msg: String) {
+    if !verbose {
+        return;
+    }
+    let _ = out.write_all(format!("choom: {msg}\r\n").as_bytes()).await;
+    let _ = out.flush().await;
 }
 
 /// Read into `buf` from an optional reader; `None` if there is no reader.
@@ -518,7 +648,10 @@ async fn fetch_roster(
     let mut session = client::connect(
         Arc::new(client::Config::default()),
         (sf.server.as_str(), sf.port),
-        Cli { expected_fp: None },
+        Cli {
+            expected_fp: None,
+            seen_fp: Arc::new(std::sync::Mutex::new(None)),
+        },
     )
     .await
     .map_err(|e| {

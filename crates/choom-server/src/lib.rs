@@ -144,6 +144,13 @@ pub async fn serve_on(cfg: Config, listener: TcpListener) -> anyhow::Result<()> 
     let ssh_config = Arc::new(russh::server::Config {
         inactivity_timeout: Some(Duration::from_secs(3600)),
         auth_rejection_time: Duration::from_secs(2),
+        // Advertise only `none` (viewers: the username is the token) and `publickey`
+        // (hosts). russh's default set also offers password + keyboard-interactive, which
+        // makes a stock `ssh <bad-token>@relay` fall through to a misleading password
+        // prompt instead of failing cleanly with "Permission denied".
+        methods: russh::MethodSet::from(
+            &[russh::MethodKind::None, russh::MethodKind::PublicKey][..],
+        ),
         keys: vec![host_key],
         ..Default::default()
     });

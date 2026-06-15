@@ -205,6 +205,44 @@ async fn relay_core_flow() {
     assert!(!ok, "unknown token must fail authentication");
 }
 
+/// Stock `ssh <token>@relay` offers no key and no password — it authenticates with the
+/// SSH `none` method, the username carrying the token. This is the exact path a real
+/// viewer uses, so it must succeed for a valid token and fail for a bogus one (a
+/// regression here makes `ssh` fall through to a misleading password prompt).
+#[tokio::test]
+async fn viewer_authenticates_with_none() {
+    let host_key = PrivateKey::random(&mut rand::rng(), Algorithm::Ed25519).unwrap();
+    let host_pub = host_key.public_key().to_openssh().unwrap();
+    let addr = start_relay(vec![host_pub]).await;
+
+    // Host creates a session and we learn a real viewer token.
+    let host = connect_host(addr, host_key).await;
+    let host_chan = host.channel_open_session().await.unwrap();
+    let mut hframed = Framed::new(host_chan.into_stream(), FrameCodec);
+    hframed
+        .send(Frame::Control(Control::Hello { cols: 80, rows: 24 }))
+        .await
+        .unwrap();
+    let rw = match next_frame(&mut hframed).await {
+        Some(Frame::Control(Control::Ready(r))) => r.rw,
+        other => panic!("expected Ready, got {other:?}"),
+    };
+
+    // A valid token authenticates with `none` (no key offered) — the stock-ssh path.
+    let mut h = client::connect(Arc::new(client::Config::default()), addr, Cli)
+        .await
+        .unwrap();
+    let res = h.authenticate_none(rw).await.unwrap();
+    assert!(res.success(), "valid token must authenticate via `none`");
+
+    // A bogus token fails `none` too (must not fall through to another method).
+    let mut bad = client::connect(Arc::new(client::Config::default()), addr, Cli)
+        .await
+        .unwrap();
+    let res = bad.authenticate_none("not-a-real-token").await.unwrap();
+    assert!(!res.success(), "unknown token must fail `none` authentication");
+}
+
 #[tokio::test]
 async fn untrusted_host_key_is_rejected() {
     let trusted = PrivateKey::random(&mut rand::rng(), Algorithm::Ed25519).unwrap();

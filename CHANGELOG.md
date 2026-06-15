@@ -3,6 +3,25 @@
 Notable changes, newest first. [Keep a Changelog](https://keepachangelog.com/) /
 [SemVer](https://semver.org/).
 
+## [2.0.1] - 2026-06-15
+
+### Fixed
+
+- **Viewer authentication**: `ssh <token>@relay` now authenticates with the SSH `none`
+  method (the username carries the token), so stock `ssh` connects with no key and no
+  password. The relay advertises only `none` + `publickey` — a bad token fails cleanly
+  with "Permission denied" instead of falling through to a misleading password prompt.
+- **Host connect**: each relay connect attempt is capped at 8s (was the ~127s OS
+  default), so an unreachable relay no longer hangs on a blank, un-interruptible screen.
+  The initial dial retries up to 3× with visible status; raw mode is entered only after
+  the first successful connect, so `Ctrl-C` still aborts while dialing.
+
+### Added
+
+- `choom host -v`/`--verbose` — connection diagnostics on the host's screen: the
+  resolved relay address(es), each connect attempt, the relay host-key fingerprint, and
+  the auth method.
+
 ## [2.0.0] - 2026-06-15
 
 Ground-up Rust rewrite. Clean-break wire protocol — a 2.0 host needs a 2.0 relay.
