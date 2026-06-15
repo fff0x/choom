@@ -3,6 +3,19 @@
 Notable changes, newest first. [Keep a Changelog](https://keepachangelog.com/) /
 [SemVer](https://semver.org/).
 
+## [2.2.0] - 2026-06-15
+
+### Changed
+
+- **Default relay port depends on the server**: `choom host` with no `-p` dials the public
+  `choom.sh` on the standard SSH port 22, and any other relay on choom's own default 2200.
+  `-p` (or `CHOOM_PORT`) overrides. So `choom host` "just works" against `choom.sh` and the
+  share links it advertises are portless, while self-hosted relays stay on 2200.
+
+### Added
+
+- The relay logs its **version** on startup (`choom relay starting version=…`).
+
 ## [2.1.0] - 2026-06-15
 
 ### Fixed

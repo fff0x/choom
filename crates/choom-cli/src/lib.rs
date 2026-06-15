@@ -274,12 +274,14 @@ fn resolve_host(a: HostArgs) -> Result<HostConfig> {
     } else {
         f.use_default_key.unwrap_or(true)
     };
+    let server = a
+        .server
+        .or(f.server)
+        .unwrap_or_else(|| proto::DEFAULT_SERVER.to_string());
+    let port = a.port.or(f.port).unwrap_or_else(|| proto::default_port_for(&server));
     Ok(HostConfig {
-        server: a
-            .server
-            .or(f.server)
-            .unwrap_or_else(|| proto::DEFAULT_SERVER.to_string()),
-        port: a.port.or(f.port).unwrap_or(proto::DEFAULT_SSH_PORT),
+        server,
+        port,
         shell: a.shell.or(f.shell),
         record: a.record || f.record.unwrap_or(false),
         identity: a.identity.or(f.identity),
@@ -352,13 +354,31 @@ mod tests {
 
     #[test]
     fn host_defaults() {
+        // No server given -> the public choom.sh on the standard SSH port (22).
         let c = host(&["choom", "host"]);
         assert_eq!(c.server, proto::DEFAULT_SERVER);
-        assert_eq!(c.port, proto::DEFAULT_SSH_PORT);
+        assert_eq!(c.port, proto::DEFAULT_SERVER_PORT);
         assert!(c.use_default_key);
         assert!(!c.detach);
         assert!(!c.verbose);
         assert!(!c.record);
+    }
+
+    #[test]
+    fn host_default_port_depends_on_server() {
+        // choom.sh (explicit or implicit) defaults to 22; any other relay to 2200.
+        assert_eq!(host(&["choom", "host"]).port, 22);
+        assert_eq!(host(&["choom", "host", "-s", "choom.sh"]).port, 22);
+        assert_eq!(
+            host(&["choom", "host", "-s", "your.relay"]).port,
+            proto::DEFAULT_SSH_PORT
+        );
+        // An explicit -p always wins.
+        assert_eq!(host(&["choom", "host", "-p", "2022"]).port, 2022);
+        assert_eq!(
+            host(&["choom", "host", "-s", "your.relay", "-p", "22"]).port,
+            22
+        );
     }
 
     #[test]

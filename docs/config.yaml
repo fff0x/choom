@@ -31,7 +31,7 @@ rate_limit: 60                    # new connections / source IP / minute (0 = of
 
 # --- host (choom host -c choom.yaml) ---
 # server: choom.example.com
-# port: 2200
+# port: 2200                        # -p, relay SSH port to dial
 # shell: /bin/bash
 # record: false                   # ask the relay to record this session
 # identity: ~/.ssh/id_ed25519     # -i, overrides the bundled default key

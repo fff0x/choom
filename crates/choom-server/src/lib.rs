@@ -104,6 +104,7 @@ fn load_or_create_host_key(path: &std::path::Path) -> anyhow::Result<PrivateKey>
 
 /// Serve on an already-bound listener (used by tests on an ephemeral port).
 pub async fn serve_on(cfg: Config, listener: TcpListener) -> anyhow::Result<()> {
+    info!(version = env!("CARGO_PKG_VERSION"), "choom relay starting");
     // Persistent host key if configured (stable fingerprint), else ephemeral.
     let host_key = match &cfg.host_key_path {
         Some(path) => load_or_create_host_key(path)?,

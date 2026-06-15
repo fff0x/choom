@@ -26,7 +26,7 @@ FROM scratch
 
 ARG CAT=choom
 ARG APP=relay
-ARG APP_VERSION=2.1.0
+ARG APP_VERSION=2.2.0
 ARG APP_DESCRIPTION="choom — minimal SSH terminal sharing relay"
 
 LABEL \

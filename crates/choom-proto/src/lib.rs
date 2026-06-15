@@ -39,7 +39,19 @@ pub const MAX_ROWS: u16 = 1000;
 // --- Defaults -----------------------------------------------------------------
 /// Public default relay.
 pub const DEFAULT_SERVER: &str = "choom.sh";
+/// choom's own default SSH port (what a self-hosted relay listens on and is dialed at).
 pub const DEFAULT_SSH_PORT: u16 = 2200;
+/// The public [`DEFAULT_SERVER`] is reached on the standard SSH port.
+pub const DEFAULT_SERVER_PORT: u16 = 22;
+
+/// The port to dial a relay at when the user didn't pass one.
+pub fn default_port_for(server: &str) -> u16 {
+    if server == DEFAULT_SERVER {
+        DEFAULT_SERVER_PORT
+    } else {
+        DEFAULT_SSH_PORT
+    }
+}
 pub const DEFAULT_WEB_PORT: u16 = 8080;
 /// Seconds a session lives on after the host drops.
 pub const GRACE_PERIOD_SECS: u64 = 60;

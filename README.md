@@ -33,7 +33,7 @@ cargo build --release        # -> target/release/choom
 Share your shell on a relay (host prints the share links):
 
 ```sh
-choom host -s your.relay -p 2200
+choom host -s your.relay
 ```
 
 ```
@@ -45,8 +45,8 @@ Share a link below; viewers connect with their ssh client.
   Web (RO):   https://your.relay/s/<ro-token>
 ```
 
-The `-p 2200` matches the relay's advertised port; the banner prints it for you (and
-omits it when the relay is on the default SSH port 22, like `choom.sh`).
+The banner prints the exact `ssh` command. `choom host` dials `choom.sh` on the standard
+SSH port 22; any other relay on choom's default **2200** (override with `-p`).
 
 Run your own relay:
 
@@ -138,7 +138,7 @@ YAML file (`-c file.yaml`); precedence is **CLI flag > file > default**.
 choom server [-H host] [-p port] [-w addr] [-W url]
              [-a authorized_keys] [--no-default-key]
              [-r dir] [--record-all] [--max-sessions N] [--max-viewers N] [--rate-limit N]
-choom host   [-s server] [-p port] [--shell SH] [--record] [--detach]
+choom host   [-s server] [-p port] [--shell SH] [--record] [--detach] [-v]
              [-i identity] [--no-default-key] [--fingerprint SHA256:…]
 choom clients [-i identity] [--no-default-key]
 ```
