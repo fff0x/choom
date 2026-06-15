@@ -604,6 +604,17 @@ async fn winch_recv(winch: &mut Option<tokio::signal::unix::Signal>) {
     }
 }
 
+/// The `ssh` command a viewer runs to attach. Includes `-p <port>` whenever the relay
+/// isn't on the default SSH port (22): without it `ssh <token>@host` hits port 22 —
+/// usually a *different* sshd — which then prompts for a password instead of attaching.
+fn viewer_ssh_cmd(token: &str, host: &str, port: u16) -> String {
+    if port == 22 {
+        format!("ssh {token}@{host}")
+    } else {
+        format!("ssh -p {port} {token}@{host}")
+    }
+}
+
 async fn print_banner(stdout: &mut tokio::io::Stdout, ready: &Ready, cfg: &HostConfig) {
     let web = ready
         .web
@@ -616,14 +627,13 @@ async fn print_banner(stdout: &mut tokio::io::Stdout, ready: &Ready, cfg: &HostC
     } else {
         ""
     };
+    let ro_cmd = viewer_ssh_cmd(&ready.ro, &ready.host, ready.port);
+    let rw_cmd = viewer_ssh_cmd(&ready.rw, &ready.host, ready.port);
     let banner = format!(
         "\r\nWelcome, Choomba, your shell is now shared!\r\n\
          Share a link below; viewers connect with their ssh client.\r\n\r\n  \
-         Read-only:  ssh {ro}@{host}\r\n  \
-         Read-write: ssh {rw}@{host}  (full shell access!){web}\r\n{detach}\r\n",
-        ro = ready.ro,
-        rw = ready.rw,
-        host = ready.host,
+         Read-only:  {ro_cmd}\r\n  \
+         Read-write: {rw_cmd}  (full shell access!){web}\r\n{detach}\r\n",
     );
     let _ = stdout.write_all(banner.as_bytes()).await;
     let _ = stdout.flush().await;
@@ -744,5 +754,17 @@ mod tests {
     fn hello_frame_builds() {
         let f = Frame::Control(Control::Hello { cols: 80, rows: 24 });
         assert!(f.encode().is_ok());
+    }
+
+    #[test]
+    fn viewer_ssh_cmd_includes_nondefault_port() {
+        // The relay runs on 2200, so the share link must carry `-p 2200` — otherwise
+        // `ssh <token>@host` hits port 22 (a different sshd) and prompts for a password.
+        assert_eq!(
+            viewer_ssh_cmd("TOK", "choom.sh", 2200),
+            "ssh -p 2200 TOK@choom.sh"
+        );
+        // On the default SSH port the `-p` is omitted for a clean link.
+        assert_eq!(viewer_ssh_cmd("TOK", "choom.sh", 22), "ssh TOK@choom.sh");
     }
 }
