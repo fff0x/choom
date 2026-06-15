@@ -35,8 +35,19 @@ pub fn router(app: Arc<App>) -> Router {
         .route("/assets/asciinema-player.css", get(asset_css))
         .route("/download", get(download_index))
         .route("/download/{file}", get(download_file))
+        .route("/healthz", get(healthz))
         .layer(middleware::from_fn(security_headers))
         .with_state(app)
+}
+
+/// `GET /healthz` — liveness/readiness. 200 while serving, 503 once the relay is draining
+/// (SIGTERM) so an orchestrator stops routing new traffic before sessions are torn down.
+async fn healthz(State(app): State<Arc<App>>) -> Response {
+    if app.is_draining() {
+        (StatusCode::SERVICE_UNAVAILABLE, "draining\n").into_response()
+    } else {
+        (StatusCode::OK, "ok\n").into_response()
+    }
 }
 
 /// Build the (separate) metrics router. Kept off [`router`] so `/metrics` is never exposed
@@ -390,19 +401,38 @@ text-decoration:none;border:1px solid #555;box-shadow:0 1px 4px rgba(0,0,0,.5)}
   const token = location.pathname.split('/').filter(Boolean).pop();
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
   const url = `${proto}://${location.host}/s/${token}/stream`;
-  // Show the download button only when this session was actually recorded.
   const cast = `/s/${token}/cast`;
-  fetch(cast, { method: 'HEAD' }).then(r => {
+  const el = document.getElementById('player');
+  const opts = { fit: 'both', autoPlay: true, terminalFontSize: 'small' };
+  // Probe whether this session was recorded — reveals the download button and decides
+  // the fallback below.
+  let recording = fetch(cast, { method: 'HEAD' }).then(r => {
     if (r.ok) { const a = document.getElementById('dl'); a.href = cast; a.style.display = 'block'; }
-  }).catch(() => {});
-  if (window.AsciinemaPlayer) {
+    return r.ok;
+  }).catch(() => false);
+  function mountLive() {
     // autoPlay is essential: without it the player shows a black poster and does not
     // even open the WebSocket until clicked. fit:'both' needs the sized #player above.
-    AsciinemaPlayer.create({ driver: 'websocket', url }, document.getElementById('player'),
-      { fit: 'both', autoPlay: true, terminalFontSize: 'small' });
+    AsciinemaPlayer.create({ driver: 'websocket', url }, el, opts);
+  }
+  function mountReplay() { el.innerHTML = ''; AsciinemaPlayer.create(cast, el, opts); }
+  function showMessage(msg) {
+    document.body.innerHTML = '<p style="color:#ccc;font-family:monospace;padding:1rem">' + msg + '</p>';
+  }
+  if (!window.AsciinemaPlayer) {
+    showMessage('asciinema-player asset missing (vendoring pending). WS: ' + url);
   } else {
-    document.body.innerHTML = '<p style="color:#ccc;font-family:monospace;padding:1rem">'
-      + 'asciinema-player asset missing (vendoring pending). WS: ' + url + '</p>';
+    // Decide live vs replay: probe the live stream first. If it is up, watch live; if it
+    // is gone (session ended / unknown token) replay the recording when one exists, so a
+    // recorded session stays watchable in the browser after it ends.
+    let decided = false;
+    const probe = new WebSocket(url);
+    probe.onopen = () => { decided = true; try { probe.close(); } catch (e) {} mountLive(); };
+    probe.onerror = () => {
+      if (decided) return; decided = true;
+      recording.then(ok => ok ? mountReplay()
+        : showMessage('session not live and no recording available.'));
+    };
   }
 </script>
 </body></html>"#;

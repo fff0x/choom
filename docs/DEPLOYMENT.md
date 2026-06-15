@@ -108,6 +108,8 @@ rolling restarts are graceful.
 
 ## Observe
 
+- **Health** — `GET /healthz` on the web listener returns `200` while serving and `503`
+  once the relay is draining (SIGTERM), so it works as an HTTP readiness/liveness probe.
 - **Logs** — session create/close, host connect/disconnect/resume, viewer join/leave,
   rejected tokens, untrusted hosts, rate-limit drops. No full tokens are logged.
   `CHOOM_LOG_FORMAT=json` for aggregation.

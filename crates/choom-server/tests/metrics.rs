@@ -14,7 +14,7 @@ async fn metrics_track_session_activity() {
     let app = App::new(Config::default(), "SHA256:test".to_string());
     let (tx, _rx) = mpsc::channel(8);
     let session = app
-        .create_session("owner".to_string(), 80, 24, tx)
+        .create_session("owner".to_string(), 80, 24, tx, Default::default())
         .expect("create session");
     session.on_output(b"some bytes");
 

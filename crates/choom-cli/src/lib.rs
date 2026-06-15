@@ -53,6 +53,8 @@ enum Cmd {
     Server(ServerArgs),
     /// Share your local shell through a relay.
     Host(HostArgs),
+    /// Attach to a shared session as a viewer (a convenience wrapper over `ssh`).
+    View(ViewArgs),
     /// List the viewers of your session.
     Clients(ClientsArgs),
 }
@@ -67,7 +69,10 @@ pub fn run() -> Result<()> {
     match Cli::parse().cmd {
         Cmd::Server(args) => choom_server::run_with(resolve_server(args)?),
         Cmd::Host(args) => choom_host::run_with(resolve_host(args)?),
-        Cmd::Clients(args) => choom_host::run_clients(args.identity, !args.no_default_key),
+        Cmd::View(args) => choom_host::run_view(args.target, args.server, args.port, args.ssh_path),
+        Cmd::Clients(args) => {
+            choom_host::run_clients(args.identity, !args.no_default_key, args.watch)
+        }
     }
 }
 
@@ -243,6 +248,12 @@ struct HostArgs {
     /// Ask the relay to record this session.
     #[arg(long)]
     record: bool,
+    /// Human label for the session (shown on the host, in relay logs, and `choom clients`).
+    #[arg(long, short = 'n')]
+    name: Option<String>,
+    /// Read-only session: only the read-only link is issued (no read-write link).
+    #[arg(long)]
+    read_only: bool,
     /// Identity key file to authenticate with (overrides the default key).
     #[arg(long, short = 'i')]
     identity: Option<PathBuf>,
@@ -269,6 +280,8 @@ struct HostFile {
     port: Option<u16>,
     shell: Option<String>,
     record: Option<bool>,
+    name: Option<String>,
+    read_only: Option<bool>,
     identity: Option<PathBuf>,
     use_default_key: Option<bool>,
     fingerprint: Option<String>,
@@ -293,6 +306,8 @@ fn resolve_host(a: HostArgs) -> Result<HostConfig> {
         port,
         shell: a.shell.or(f.shell),
         record: a.record || f.record.unwrap_or(false),
+        name: a.name.or(f.name),
+        read_only: a.read_only || f.read_only.unwrap_or(false),
         identity: a.identity.or(f.identity),
         use_default_key,
         fingerprint: a.fingerprint.or(f.fingerprint),
@@ -301,11 +316,35 @@ fn resolve_host(a: HostArgs) -> Result<HostConfig> {
     })
 }
 
+// --- view --------------------------------------------------------------------
+
+#[derive(clap::Args)]
+#[command(after_long_help = "EXAMPLES:\n  \
+    Attach with a token (host from -s/default):\n      choom view <token>\n  \
+    Attach with a full token@host:\n      choom view <token>@relay.example.com\n\n\
+    `choom view` is a convenience over plain `ssh`: it adds the right -p and runs the\n\
+    real ssh binary (sidestepping wrappers like kitty's ssh kitten). The token decides\n\
+    read-only vs read-write — stock `ssh <token>@host` works just as well.")]
+struct ViewArgs {
+    /// The share token, or `<token>@<host>`.
+    target: String,
+    /// Relay hostname when the target is a bare token [default: choom.sh].
+    #[arg(long, short = 's', env = "CHOOM_SERVER")]
+    server: Option<String>,
+    /// Relay SSH port [default: 22 for choom.sh, else 2200].
+    #[arg(long, short = 'p', env = "CHOOM_PORT")]
+    port: Option<u16>,
+    /// Path to the `ssh` binary to exec [default: ssh on PATH].
+    #[arg(long)]
+    ssh_path: Option<String>,
+}
+
 // --- clients -----------------------------------------------------------------
 
 #[derive(clap::Args)]
 #[command(after_long_help = "EXAMPLES:\n  \
-    List the viewers of your active session:\n      choom clients")]
+    List the viewers of your active session:\n      choom clients\n  \
+    Keep a live, refreshing roster:\n      choom clients --watch")]
 struct ClientsArgs {
     /// Identity key used to create the session (must match the host's key).
     #[arg(long, short = 'i')]
@@ -313,6 +352,9 @@ struct ClientsArgs {
     /// The host did not use the bundled default key.
     #[arg(long)]
     no_default_key: bool,
+    /// Refresh the roster every 2s (live dashboard) until interrupted.
+    #[arg(long, short = 'w')]
+    watch: bool,
 }
 
 // --- shared ------------------------------------------------------------------

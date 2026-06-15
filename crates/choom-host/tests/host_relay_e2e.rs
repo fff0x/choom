@@ -61,6 +61,8 @@ async fn host_relay_viewer_roundtrip() {
         fingerprint: None,
         detach: false,
         verbose: false,
+        name: None,
+        read_only: false,
     };
     tokio::spawn(async move {
         let _ = run_host_for_test(cfg, ready_tx).await;
@@ -148,6 +150,8 @@ async fn host_stops_when_shell_exits_during_reconnect() {
         fingerprint: None,
         detach: false,
         verbose: false,
+        name: None,
+        read_only: false,
     };
     let host = tokio::spawn(async move { run_host_for_test(cfg, ready_tx).await });
 

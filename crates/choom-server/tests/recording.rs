@@ -16,7 +16,7 @@ async fn records_output_to_a_private_cast_file() {
     let app = App::new(Config::default(), "SHA256:test".to_string());
     let (to_host, _rx) = mpsc::channel(16);
     let session = app
-        .create_session("owner-key".to_string(), 80, 24, to_host)
+        .create_session("owner-key".to_string(), 80, 24, to_host, Default::default())
         .expect("create session");
 
     let path = recorder::start(&session, &dir).expect("start recording");

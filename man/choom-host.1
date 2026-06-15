@@ -4,7 +4,7 @@
 .SH NAME
 choom\-host \- Share your local shell through a relay
 .SH SYNOPSIS
-\fBchoom\-host\fR [\fB\-c\fR|\fB\-\-config\fR] [\fB\-s\fR|\fB\-\-server\fR] [\fB\-p\fR|\fB\-\-port\fR] [\fB\-\-shell\fR] [\fB\-\-record\fR] [\fB\-i\fR|\fB\-\-identity\fR] [\fB\-\-no\-default\-key\fR] [\fB\-\-fingerprint\fR] [\fB\-\-detach\fR] [\fB\-v\fR|\fB\-\-verbose\fR] [\fB\-h\fR|\fB\-\-help\fR] 
+\fBchoom\-host\fR [\fB\-c\fR|\fB\-\-config\fR] [\fB\-s\fR|\fB\-\-server\fR] [\fB\-p\fR|\fB\-\-port\fR] [\fB\-\-shell\fR] [\fB\-\-record\fR] [\fB\-n\fR|\fB\-\-name\fR] [\fB\-\-read\-only\fR] [\fB\-i\fR|\fB\-\-identity\fR] [\fB\-\-no\-default\-key\fR] [\fB\-\-fingerprint\fR] [\fB\-\-detach\fR] [\fB\-v\fR|\fB\-\-verbose\fR] [\fB\-h\fR|\fB\-\-help\fR] 
 .SH DESCRIPTION
 Share your local shell through a relay
 .SH OPTIONS
@@ -29,6 +29,12 @@ Shell to run (defaults to $SHELL, then /bin/sh)
 .TP
 \fB\-\-record\fR
 Ask the relay to record this session
+.TP
+\fB\-n\fR, \fB\-\-name\fR \fI<NAME>\fR
+Human label for the session (shown on the host, in relay logs, and `choom clients`)
+.TP
+\fB\-\-read\-only\fR
+Read\-only session: only the read\-only link is issued (no read\-write link)
 .TP
 \fB\-i\fR, \fB\-\-identity\fR \fI<IDENTITY>\fR
 Identity key file to authenticate with (overrides the default key)

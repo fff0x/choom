@@ -86,17 +86,21 @@ is a full tmux fork; choom keeps only the sharing core.
 ## Features
 
 - Read-only **and** read-write links (RW = full shell access), many simultaneous
-  viewers with a synchronized view.
+  viewers with a synchronized view. `--read-only` shares without ever issuing an RW link.
+- Optional **session name** (`--name`) shown on the host, in logs, and to `choom clients`.
 - **Correct repaint** on join/resize via a server-side screen model, and
   **resize negotiation** (RO/web never shrink the host — no resize DoS).
 - **Reconnect**: brief host network drops are survived (grace period, owner-bound
   resume); the shell keeps running and viewers stay attached.
 - **Web (output-only)** browser view served as a live [asciicast](https://docs.asciinema.org/)
-  stream (asciinema-player); landing page at `/`.
+  stream (asciinema-player); landing page at `/`. A recorded session **replays in the
+  browser** after it ends (the live link falls back to the recording).
 - **asciicast v3 recording** (opt-in per session), with age/size retention.
-- **`choom clients`** — list the viewers of your session (mode, transport, IP, size).
-- **Public-relay hardening**: per-IP rate limiting, session + viewer caps;
-  structured (JSON) logging and a Prometheus `/metrics` endpoint.
+- **`choom view <token>`** — attach as a viewer without hand-writing `ssh` (adds the right
+  `-p`, runs the real `ssh` binary). **`choom clients [--watch]`** — list/live-watch the
+  viewers of your session (mode, transport, IP, size).
+- **Public-relay hardening**: per-IP rate limiting, session + viewer caps; `/healthz`
+  readiness; structured (JSON) logging and an internal Prometheus `/metrics` endpoint.
 
 ## How it works
 
@@ -112,14 +116,17 @@ Full design: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Viewing a session
 
-- **Use plain `ssh`** (`ssh <token>@host`). Terminal *ssh wrappers that bootstrap the
+- **Use plain `ssh`** (`ssh <token>@host`), or `choom view <token>` if you have the
+  binary — a thin wrapper that fills in the right `-p` and execs the real `ssh`, which
+  also sidesteps the wrapper issue below.
+- Terminal *ssh wrappers that bootstrap the
   remote shell* — notably **kitty's `ssh` kitten** — can't work as viewers: they upload
   terminfo / shell-integration data through the terminal at startup, assuming they
   control the remote shell's launch, which a relay (forwarding an already-running shell)
   can't provide. choom detects such clients (they request `exec`, or inject a known
   setup payload) and **disconnects that viewer with a hint** — so they can't flood the
   host — but you still need plain `ssh` to view. If your `ssh` is aliased to the kitten,
-  call the real binary (e.g. `\ssh` or `/usr/bin/ssh`).
+  call the real binary (e.g. `\ssh` or `/usr/bin/ssh`), or just use `choom view`.
 - **Port**: connect on the relay's SSH port. The share banner prints the exact `ssh`
   command — it includes **`-p <port>`** whenever the relay isn't on the standard SSH
   port (22). The public **`choom.sh` is reachable on port 22**, so `ssh <token>@choom.sh`
@@ -131,16 +138,17 @@ Full design: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## CLI
 
-`choom <server|host|clients>`. Every flag also reads an env var and can come from a
+`choom <server|host|view|clients>`. Every flag also reads an env var and can come from a
 YAML file (`-c file.yaml`); precedence is **CLI flag > file > default**.
 
 ```
-choom server [-H host] [-p port] [-w addr] [-W url]
+choom server [-H host] [-p port] [-w addr] [-W url] [--metrics-addr addr]
              [-a authorized_keys] [--no-default-key]
              [-r dir] [--record-all] [--max-sessions N] [--max-viewers N] [--rate-limit N]
-choom host   [-s server] [-p port] [--shell SH] [--record] [--detach] [-v]
-             [-i identity] [--no-default-key] [--fingerprint SHA256:…]
-choom clients [-i identity] [--no-default-key]
+choom host   [-s server] [-p port] [--shell SH] [--record] [-n name] [--read-only]
+             [--detach] [-v] [-i identity] [--no-default-key] [--fingerprint SHA256:…]
+choom view   <token | token@host> [-s server] [-p port] [--ssh-path PATH]
+choom clients [-i identity] [--no-default-key] [--watch]
 ```
 
 See `choom <cmd> --help` for the full list and env vars, and

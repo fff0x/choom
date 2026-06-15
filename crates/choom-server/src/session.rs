@@ -159,6 +159,12 @@ pub struct SessionShared {
     pub reconnect_id: String,
     /// Owner public key (OpenSSH form) — binds reconnect/query to the host.
     pub owner_key: String,
+    /// Optional human label for this session (host `--name`); shown in logs and to
+    /// `choom clients`. Not a secret.
+    pub name: Option<String>,
+    /// Read-only session: the read-write token was never handed out (its registry entry,
+    /// if any, grants only read), and the share banner advertises no RW link.
+    pub read_only: bool,
     /// Outbound frames to the host (viewer input + control). Swapped on reconnect so
     /// input flows to the *current* host connection.
     to_host: Mutex<mpsc::Sender<Frame>>,
@@ -350,6 +356,9 @@ pub struct App {
     /// web view can't be turned into an open-file / bandwidth amplifier. Downloads stream
     /// (no full-file read into memory), and this bounds the number in flight at once.
     pub downloads_inflight: Arc<tokio::sync::Semaphore>,
+    /// Set once the relay is draining (SIGTERM): `/healthz` then reports unready so an
+    /// orchestrator stops routing new traffic before sessions are torn down.
+    draining: AtomicBool,
 }
 
 /// Max concurrent file downloads served by the web view (`.cast` + `/download/{file}`).
@@ -359,6 +368,15 @@ pub const MAX_CONCURRENT_DOWNLOADS: usize = 64;
 #[derive(Debug)]
 pub enum CreateError {
     TooManySessions,
+}
+
+/// Options chosen by the host at session creation (carried by the `SessionOpts` frame).
+#[derive(Default, Clone, Debug)]
+pub struct SessionOpts {
+    /// Human label for the session (host `--name`).
+    pub name: Option<String>,
+    /// Read-only session — no read-write link is issued.
+    pub read_only: bool,
 }
 
 impl App {
@@ -394,6 +412,7 @@ impl App {
             rate: Mutex::new(HashMap::new()),
             recordings: Mutex::new(HashMap::new()),
             downloads_inflight: Arc::new(tokio::sync::Semaphore::new(MAX_CONCURRENT_DOWNLOADS)),
+            draining: AtomicBool::new(false),
         })
     }
 
@@ -461,6 +480,7 @@ impl App {
         cols: u16,
         rows: u16,
         to_host: mpsc::Sender<Frame>,
+        opts: SessionOpts,
     ) -> Result<Arc<SessionShared>, CreateError> {
         let mut sessions = self.sessions.lock().unwrap();
         if sessions.len() / 2 >= self.cfg.max_sessions {
@@ -475,6 +495,8 @@ impl App {
             rw_token: proto::new_token(),
             reconnect_id: proto::new_reconnect_id(),
             owner_key,
+            name: opts.name,
+            read_only: opts.read_only,
             to_host: Mutex::new(to_host),
             output_tx,
             cancel: CancellationToken::new(),
@@ -498,11 +520,14 @@ impl App {
                 mode: Mode::Ro,
             },
         );
+        // In a read-only session the RW token is never advertised (see `make_ready`); map
+        // it to read-only too so even a leaked rw token can only watch — a hard guarantee
+        // rather than mere non-disclosure.
         sessions.insert(
             session.rw_token.clone(),
             TokenEntry {
                 session: session.clone(),
-                mode: Mode::Rw,
+                mode: if opts.read_only { Mode::Ro } else { Mode::Rw },
             },
         );
         metrics::counter!("choom_sessions_created_total").increment(1);
@@ -537,6 +562,16 @@ impl App {
     /// Number of live sessions (for metrics/logging).
     pub fn session_count(&self) -> usize {
         self.sessions.lock().unwrap().len() / 2
+    }
+
+    /// Mark the relay as draining (SIGTERM): `/healthz` reports unready from now on.
+    pub fn set_draining(&self) {
+        self.draining.store(true, Ordering::Relaxed);
+    }
+
+    /// Whether the relay is draining (used by `/healthz`).
+    pub fn is_draining(&self) -> bool {
+        self.draining.load(Ordering::Relaxed)
     }
 
     /// Drain: end every session (viewer tasks detach) and clear the registry. Used on

@@ -180,6 +180,7 @@ pub async fn serve_on(cfg: Config, listener: TcpListener) -> anyhow::Result<()> 
         r = &mut running => r.context("relay server loop")?,
         _ = shutdown_signal() => {
             info!(sessions = app.session_count(), "draining: shutting down");
+            app.set_draining(); // flip /healthz to unready before tearing sessions down
             app.shutdown_all();
             shutdown.shutdown("choom relay shutting down".into());
             let _ = (&mut running).await;
