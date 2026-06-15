@@ -363,20 +363,21 @@ dependencies = [
 
 [[package]]
 name = "choom-cli"
-version = "2.0.1"
+version = "2.1.0"
 dependencies = [
  "anyhow",
  "choom-host",
  "choom-proto",
  "choom-server",
  "clap",
+ "pty-process",
  "serde",
  "serde_yaml",
 ]
 
 [[package]]
 name = "choom-host"
-version = "2.0.1"
+version = "2.1.0"
 dependencies = [
  "anyhow",
  "choom-proto",
@@ -396,7 +397,7 @@ dependencies = [
 
 [[package]]
 name = "choom-proto"
-version = "2.0.1"
+version = "2.1.0"
 dependencies = [
  "base64",
  "bytes",
@@ -409,7 +410,7 @@ dependencies = [
 
 [[package]]
 name = "choom-server"
-version = "2.0.1"
+version = "2.1.0"
 dependencies = [
  "anyhow",
  "avt",
@@ -3153,7 +3154,7 @@ dependencies = [
 
 [[package]]
 name = "xtask"
-version = "2.0.1"
+version = "2.1.0"
 dependencies = [
  "anyhow",
  "choom-cli",

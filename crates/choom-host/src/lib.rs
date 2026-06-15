@@ -207,7 +207,14 @@ pub fn run() -> Result<()> {
 pub fn run_with(cfg: HostConfig) -> Result<()> {
     init_tracing();
     let rt = tokio::runtime::Runtime::new().context("build tokio runtime")?;
-    rt.block_on(host(cfg))
+    let result = rt.block_on(host(cfg));
+    // `tokio::io::stdin()` reads on a blocking thread whose read cannot be cancelled. The
+    // default runtime drop blocks until every blocking task finishes — so when the shell
+    // exits, the process would hang on that parked stdin read until the next keypress (the
+    // "exit doesn't quit until you press Return again" bug). Abandon blocking threads on
+    // shutdown so the process exits the moment the session ends.
+    rt.shutdown_background();
+    result
 }
 
 fn init_tracing() {

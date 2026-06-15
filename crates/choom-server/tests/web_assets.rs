@@ -64,3 +64,30 @@ async fn serves_vendored_player_and_download_index() {
         "no downloads dir configured"
     );
 }
+
+/// The viewer page must start the player with `autoPlay: true`. Without it the
+/// asciinema-player shows a black poster and never even opens the WebSocket, which is
+/// the "session stays black in the browser" bug. The container also needs a height for
+/// `fit: 'both'` not to collapse to nothing.
+#[tokio::test]
+async fn viewer_page_autoplays_the_live_stream() {
+    let app = App::new(Config::default(), "SHA256:test".to_string());
+    let resp = get(&app, "/s/sometoken").await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let html = String::from_utf8_lossy(&body);
+    assert!(
+        html.contains("autoPlay: true"),
+        "viewer page must auto-play the live stream (else the browser stays black)"
+    );
+    assert!(
+        html.contains("driver: 'websocket'"),
+        "viewer page must use the websocket (live) driver"
+    );
+    assert!(
+        html.contains("#player{height"),
+        "the player container needs a height for fit:'both'"
+    );
+}

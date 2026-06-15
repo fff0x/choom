@@ -316,3 +316,126 @@ fn load_file<T: Default + for<'de> Deserialize<'de>>(path: Option<&std::path::Pa
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn host(args: &[&str]) -> HostConfig {
+        match Cli::try_parse_from(args).unwrap().cmd {
+            Cmd::Host(a) => resolve_host(a).unwrap(),
+            _ => panic!("expected host subcommand"),
+        }
+    }
+
+    fn server(args: &[&str]) -> Config {
+        match Cli::try_parse_from(args).unwrap().cmd {
+            Cmd::Server(a) => resolve_server(a).unwrap(),
+            _ => panic!("expected server subcommand"),
+        }
+    }
+
+    /// A unique temp file holding `body`, cleaned up by the returned guard's path parent.
+    fn tmp_yaml(name: &str, body: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("choom-cli-{}-{name}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let p = dir.join("config.yaml");
+        std::fs::write(&p, body).unwrap();
+        p
+    }
+
+    #[test]
+    fn the_cli_parses() {
+        // Guards against clap configuration errors (duplicate short flags, etc.).
+        Cli::command().debug_assert();
+    }
+
+    #[test]
+    fn host_defaults() {
+        let c = host(&["choom", "host"]);
+        assert_eq!(c.server, proto::DEFAULT_SERVER);
+        assert_eq!(c.port, proto::DEFAULT_SSH_PORT);
+        assert!(c.use_default_key);
+        assert!(!c.detach);
+        assert!(!c.verbose);
+        assert!(!c.record);
+    }
+
+    #[test]
+    fn host_cli_flags_win() {
+        let c = host(&[
+            "choom", "host", "-s", "relay.example.com", "-p", "2020", "--detach", "-v", "--record",
+            "--no-default-key",
+        ]);
+        assert_eq!(c.server, "relay.example.com");
+        assert_eq!(c.port, 2020);
+        assert!(c.detach);
+        assert!(c.verbose);
+        assert!(c.record);
+        assert!(!c.use_default_key);
+    }
+
+    #[test]
+    fn server_defaults_and_overrides() {
+        let d = server(&["choom", "server"]);
+        assert_eq!(d.advertise_host, proto::DEFAULT_SERVER);
+        assert_eq!(d.advertise_port, proto::DEFAULT_SSH_PORT);
+        assert!(d.use_default_key);
+        assert!(d.web_addr.is_none());
+        assert!(!d.record_all);
+
+        let c = server(&[
+            "choom", "server", "-H", "r.example", "-w", "0.0.0.0:8080", "--no-default-key",
+            "--record-all",
+        ]);
+        assert_eq!(c.advertise_host, "r.example");
+        assert_eq!(c.web_addr.unwrap().to_string(), "0.0.0.0:8080");
+        assert!(!c.use_default_key);
+        assert!(c.record_all);
+    }
+
+    #[test]
+    fn precedence_cli_over_file_over_default() {
+        let f = tmp_yaml(
+            "prec",
+            "server: file-relay\nport: 2222\nverbose: true\n",
+        );
+        let fp = f.to_str().unwrap();
+
+        // File supplies values where the CLI is silent.
+        let from_file = host(&["choom", "host", "-c", fp]);
+        assert_eq!(from_file.server, "file-relay");
+        assert_eq!(from_file.port, 2222);
+        assert!(from_file.verbose);
+
+        // An explicit CLI flag overrides the file; unrelated file keys still apply.
+        let overridden = host(&["choom", "host", "-c", fp, "-s", "cli-relay"]);
+        assert_eq!(overridden.server, "cli-relay");
+        assert_eq!(overridden.port, 2222);
+
+        std::fs::remove_dir_all(f.parent().unwrap()).ok();
+    }
+
+    #[test]
+    fn config_file_rejects_unknown_keys() {
+        let f = tmp_yaml("bad", "bogus_key: 1\n");
+        let res = Cli::try_parse_from(["choom", "host", "-c", f.to_str().unwrap()])
+            .unwrap()
+            .cmd;
+        let err = match res {
+            Cmd::Host(a) => resolve_host(a),
+            _ => unreachable!(),
+        };
+        assert!(err.is_err(), "unknown YAML keys must be rejected");
+        std::fs::remove_dir_all(f.parent().unwrap()).ok();
+    }
+
+    #[test]
+    fn host_key_resolves_from_flag_or_env_field() {
+        let c = server(&["choom", "server", "--host-key", "/var/lib/choom/hk"]);
+        assert_eq!(
+            c.host_key_path.as_deref(),
+            Some(std::path::Path::new("/var/lib/choom/hk"))
+        );
+    }
+}

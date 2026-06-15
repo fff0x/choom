@@ -286,7 +286,7 @@ const VIEWER_HTML: &str = r#"<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><title>choom — session</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="stylesheet" href="/assets/asciinema-player.css">
-<style>html,body{margin:0;height:100%;background:#000}</style>
+<style>html,body{margin:0;height:100%;background:#000}#player{height:100%}</style>
 </head><body>
 <div id="player"></div>
 <script src="/assets/asciinema-player.min.js"></script>
@@ -295,8 +295,10 @@ const VIEWER_HTML: &str = r#"<!doctype html>
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
   const url = `${proto}://${location.host}/s/${token}/stream`;
   if (window.AsciinemaPlayer) {
+    // autoPlay is essential: without it the player shows a black poster and does not
+    // even open the WebSocket until clicked. fit:'both' needs the sized #player above.
     AsciinemaPlayer.create({ driver: 'websocket', url }, document.getElementById('player'),
-      { fit: 'both', terminalFontSize: 'small' });
+      { fit: 'both', autoPlay: true, terminalFontSize: 'small' });
   } else {
     document.body.innerHTML = '<p style="color:#ccc;font-family:monospace;padding:1rem">'
       + 'asciinema-player asset missing (vendoring pending). WS: ' + url + '</p>';

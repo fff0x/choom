@@ -21,3 +21,8 @@ anyhow.workspace = true
 clap.workspace = true
 serde = { workspace = true }
 serde_yaml.workspace = true
+
+[dev-dependencies]
+# Blocking PTY support to drive the `choom` binary as a real terminal in the
+# exit-hang end-to-end regression test (no `async` feature needed).
+pty-process = "0.5.3"

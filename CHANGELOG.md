@@ -3,6 +3,31 @@
 Notable changes, newest first. [Keep a Changelog](https://keepachangelog.com/) /
 [SemVer](https://semver.org/).
 
+## [2.1.0] - 2026-06-15
+
+### Fixed
+
+- **Web view**: live sessions render again instead of a black screen. The
+  asciinema-player was created without `autoPlay`, so it showed a black poster and
+  never even opened the WebSocket; it now auto-plays. The player container is also given
+  a height so `fit: 'both'` fills the window rather than collapsing to nothing.
+- **Host**: exiting the shell (`exit` / `Ctrl-D`) now quits immediately. The Tokio
+  runtime drop blocked on the uncancellable `tokio::io::stdin()` blocking read, so the
+  process hung after the shell exited until the next keypress. Blocking threads are now
+  abandoned on shutdown.
+
+### Notes
+
+- **Post-quantum key exchange**: no change was needed — the relay already negotiates
+  `mlkem768x25519-sha256` with modern OpenSSH clients (verified end to end). The earlier
+  "not using a post-quantum key exchange" warning came from a stale deployed image.
+
+### Internal
+
+- Expanded test coverage: the previously untested `choom-cli` crate gains config
+  precedence / parsing tests, a PTY-driven end-to-end regression test guards the host
+  exit-hang, and the web auto-play and viewer `none`-auth paths get regression tests.
+
 ## [2.0.1] - 2026-06-15
 
 ### Fixed
