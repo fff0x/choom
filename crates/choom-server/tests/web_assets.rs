@@ -148,3 +148,35 @@ async fn download_button_and_cast_gated_on_recording() {
         .unwrap();
     assert_eq!(head.status(), StatusCode::NOT_FOUND);
 }
+
+/// A recording stays downloadable after the live session ends — `/cast` resolves via the
+/// persistent recordings index, not the (now-gone) active session.
+#[tokio::test]
+async fn recording_downloadable_after_session_ends() {
+    let app = App::new(Config::default(), "SHA256:test".to_string());
+    let (to_host, _rx) = tokio::sync::mpsc::channel(4);
+    let session = app
+        .create_session("owner-key".to_string(), 80, 24, to_host)
+        .expect("create session");
+    let ro = session.ro_token.clone();
+
+    let dir = std::env::temp_dir().join(format!("choom-cast-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let cast_file = dir.join("rec.cast");
+    std::fs::write(&cast_file, b"{\"version\":3}\n[0.0,\"o\",\"hi\"]\n").unwrap();
+    app.register_recording(&session.ro_token, &session.rw_token, cast_file.clone());
+
+    let cast = format!("/s/{ro}/cast");
+    assert_eq!(get(&app, &cast).await.status(), StatusCode::OK);
+
+    // End the live session, then the download must still work.
+    app.remove_session(&session);
+    assert!(app.lookup_token(&ro).is_none(), "session token gone after end");
+    assert_eq!(
+        get(&app, &cast).await.status(),
+        StatusCode::OK,
+        "recording must stay downloadable after the session ends"
+    );
+
+    std::fs::remove_dir_all(&dir).ok();
+}

@@ -10,7 +10,8 @@ Notable changes, newest first. [Keep a Changelog](https://keepachangelog.com/) /
 - **Download button on the web viewer** — when the session was recorded, the viewer page
   shows a "Download recording" button (linking to `/s/<token>/cast`). It appears only when
   a recording exists (the page probes `/cast` with `HEAD`), so unrecorded sessions show no
-  dead button.
+  dead button. The recording stays downloadable **after the session ends** (resolved via a
+  persistent token→recording index, not the live session) until it's GC'd off disk.
 
 ### Fixed
 

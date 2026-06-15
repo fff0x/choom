@@ -508,8 +508,13 @@ async fn host_loop(
                             .await;
                         if let Some(dir) = &app.cfg.record_dir {
                             if app.cfg.record_all {
-                                if let Err(e) = crate::recorder::start(&s, dir) {
-                                    warn!(sid = s.sid, error = %e, "failed to start recording");
+                                match crate::recorder::start(&s, dir) {
+                                    Ok(path) => {
+                                        app.register_recording(&s.ro_token, &s.rw_token, path)
+                                    }
+                                    Err(e) => {
+                                        warn!(sid = s.sid, error = %e, "failed to start recording")
+                                    }
                                 }
                             }
                         }
@@ -578,7 +583,10 @@ async fn host_loop(
             Frame::Control(Control::Record) => {
                 if let Some(dir) = &app.cfg.record_dir {
                     match crate::recorder::start(&session, dir) {
-                        Ok(_) => info!(sid = session.sid, "recording started (host opt-in)"),
+                        Ok(path) => {
+                            app.register_recording(&session.ro_token, &session.rw_token, path);
+                            info!(sid = session.sid, "recording started (host opt-in)");
+                        }
                         Err(e) => warn!(sid = session.sid, error = %e, "failed to start recording"),
                     }
                 }

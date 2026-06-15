@@ -338,6 +338,9 @@ pub struct App {
     next_sid: AtomicU64,
     /// Per-IP connection timestamps for rate limiting.
     rate: Mutex<HashMap<String, VecDeque<Instant>>>,
+    /// Share token -> recording `.cast` path, kept past session end so the web download
+    /// works after the live session is over (until the file is GC'd off disk).
+    recordings: Mutex<HashMap<String, std::path::PathBuf>>,
 }
 
 /// Why a session could not be created.
@@ -377,7 +380,21 @@ impl App {
             sessions: Mutex::new(HashMap::new()),
             next_sid: AtomicU64::new(1),
             rate: Mutex::new(HashMap::new()),
+            recordings: Mutex::new(HashMap::new()),
         })
+    }
+
+    /// Remember a session's recording under both its tokens, so `/s/<token>/cast` resolves
+    /// it even after the live session has ended.
+    pub fn register_recording(&self, ro_token: &str, rw_token: &str, path: std::path::PathBuf) {
+        let mut rec = self.recordings.lock().unwrap();
+        rec.insert(ro_token.to_string(), path.clone());
+        rec.insert(rw_token.to_string(), path);
+    }
+
+    /// The recording `.cast` path for a token, if the session was (ever) recorded.
+    pub fn recording_path(&self, token: &str) -> Option<std::path::PathBuf> {
+        self.recordings.lock().unwrap().get(token).cloned()
     }
 
     /// Is `key` allowed to host (default key or an authorized_keys entry)? Compares the

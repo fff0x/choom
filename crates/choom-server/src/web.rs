@@ -151,11 +151,9 @@ async fn cast_download(
     method: Method,
     Path(token): Path<String>,
 ) -> Response {
-    let Some((session, _)) = app.lookup_token(&token) else {
-        return (StatusCode::NOT_FOUND, "unknown or expired session").into_response();
-    };
-    let path = session.record_path.lock().unwrap().clone();
-    let Some(path) = path else {
+    // Resolve via the recordings index (kept past session end), not the live session, so a
+    // viewer can still grab the `.cast` after the session is over — until it's GC'd.
+    let Some(path) = app.recording_path(&token) else {
         return (StatusCode::NOT_FOUND, "no recording for this session").into_response();
     };
     // The viewer page probes with HEAD to decide whether to show the download button —
@@ -304,9 +302,10 @@ const VIEWER_HTML: &str = r#"<!doctype html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="stylesheet" href="/assets/asciinema-player.css">
 <style>html,body{margin:0;height:100%;background:#000}#player{height:100%}
-#dl{position:fixed;top:.5rem;right:.5rem;z-index:10;display:none;padding:.3em .6em;
-border-radius:4px;background:rgba(0,0,0,.6);color:#ddd;font:13px/1 system-ui,sans-serif;
-text-decoration:none;border:1px solid #444}#dl:hover{background:rgba(0,0,0,.85);color:#fff}</style>
+#dl{position:fixed;top:8px;right:8px;z-index:2147483647;display:none;padding:.35em .7em;
+border-radius:4px;background:rgba(20,20,20,.85);color:#ddd;font:13px/1 system-ui,sans-serif;
+text-decoration:none;border:1px solid #555;box-shadow:0 1px 4px rgba(0,0,0,.5)}
+#dl:hover{background:rgba(40,40,40,.95);color:#fff}</style>
 </head><body>
 <a id="dl" download>⤓ Download recording</a>
 <div id="player"></div>
