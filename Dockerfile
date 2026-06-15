@@ -1,5 +1,6 @@
 # syntax=docker/dockerfile:1
 # choom 2.0 relay — a single static musl binary on `scratch`.
+# 
 
 ##
 ## BUILD — compile a static musl binary (alpine's rust targets musl natively)
@@ -49,8 +50,8 @@ USER 10001:10001
 #   CHOOM_SSH_ADDR, CHOOM_HOST, CHOOM_PORT, CHOOM_WEB_ADDR, CHOOM_WEB_URL,
 #   CHOOM_RECORD_DIR, CHOOM_LOG_FORMAT=json, RUST_LOG
 ENV CHOOM_SSH_ADDR="0.0.0.0:2200" \
-    CHOOM_WEB_ADDR="0.0.0.0:8080" \
-    CHOOM_LOG_FORMAT="json"
+  CHOOM_WEB_ADDR="0.0.0.0:8080" \
+  CHOOM_LOG_FORMAT="json"
 
 # 2200 = SSH relay (hosts + viewers) · 8080 = read-only web view + /metrics
 EXPOSE 2200 8080
