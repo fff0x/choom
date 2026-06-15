@@ -110,12 +110,13 @@ Full design: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 ## Viewing a session
 
 - **Use plain `ssh`** (`ssh <token>@host`). Terminal *ssh wrappers that bootstrap the
-  remote shell* — notably **kitty's `ssh` kitten** — don't work as viewers: they upload
+  remote shell* — notably **kitty's `ssh` kitten** — can't work as viewers: they upload
   terminfo / shell-integration data through the terminal at startup, assuming they
-  control the remote shell's launch. A relay only forwards an already-running shell, so
-  that setup data has nowhere to go — on a read-write session it lands in the host's
-  shell as garbage, and on read-only it leaves the kitten waiting. If your `ssh` is
-  aliased to the kitten, call the real binary (e.g. `\ssh` or `/usr/bin/ssh`).
+  control the remote shell's launch, which a relay (forwarding an already-running shell)
+  can't provide. choom detects such clients (they request `exec`, or inject a known
+  setup payload) and **disconnects that viewer with a hint** — so they can't flood the
+  host — but you still need plain `ssh` to view. If your `ssh` is aliased to the kitten,
+  call the real binary (e.g. `\ssh` or `/usr/bin/ssh`).
 - **Shared size**: the terminal is sized to the **smallest read-write viewer** so
   everyone sees the whole screen, so the host's shell repaints (and its cursor moves)
   when a smaller read-write viewer joins. Read-only/web viewers never resize the host.

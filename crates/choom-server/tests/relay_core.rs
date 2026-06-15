@@ -290,6 +290,91 @@ async fn host_bye_detaches_viewers_immediately() {
     assert!(closed, "viewer channel must close after host Bye");
 }
 
+/// A viewer is view-only: an `exec` request (a remote command, e.g. kitty's ssh kitten
+/// bootstrapping the shell) must be refused and the channel closed — not left open to
+/// fall back to injecting a payload.
+#[tokio::test]
+async fn viewer_exec_is_refused_and_disconnected() {
+    let host_key = PrivateKey::random(&mut rand::rng(), Algorithm::Ed25519).unwrap();
+    let addr = start_relay(vec![host_key.public_key().to_openssh().unwrap()]).await;
+    let host = connect_host(addr, host_key).await;
+    let host_chan = host.channel_open_session().await.unwrap();
+    let mut hframed = Framed::new(host_chan.into_stream(), FrameCodec);
+    hframed
+        .send(Frame::Control(Control::Hello { cols: 80, rows: 24 }))
+        .await
+        .unwrap();
+    let rw = match next_frame(&mut hframed).await {
+        Some(Frame::Control(Control::Ready(r))) => r.rw,
+        other => panic!("expected Ready, got {other:?}"),
+    };
+
+    let (vh, ok) = auth(addr, &rw).await;
+    assert!(ok);
+    let mut chan = vh.channel_open_session().await.unwrap();
+    let _ = chan.exec(true, &b"id"[..]).await;
+
+    let closed = timeout(Duration::from_secs(5), async {
+        loop {
+            match chan.wait().await {
+                Some(ChannelMsg::Close) | Some(ChannelMsg::Eof) | None => break true,
+                Some(_) => continue,
+            }
+        }
+    })
+    .await
+    .unwrap_or(false);
+    assert!(closed, "exec must be refused and the viewer disconnected");
+}
+
+/// A viewer that injects a blocklisted client-bootstrap marker (kitty's `KITTY_DATA_START`)
+/// as input is disconnected, and the marker never reaches the host.
+#[tokio::test]
+async fn blocklisted_input_disconnects_viewer() {
+    let host_key = PrivateKey::random(&mut rand::rng(), Algorithm::Ed25519).unwrap();
+    let addr = start_relay(vec![host_key.public_key().to_openssh().unwrap()]).await;
+    let host = connect_host(addr, host_key).await;
+    let host_chan = host.channel_open_session().await.unwrap();
+    let mut hframed = Framed::new(host_chan.into_stream(), FrameCodec);
+    hframed
+        .send(Frame::Control(Control::Hello { cols: 80, rows: 24 }))
+        .await
+        .unwrap();
+    let rw = match next_frame(&mut hframed).await {
+        Some(Frame::Control(Control::Ready(r))) => r.rw,
+        other => panic!("expected Ready, got {other:?}"),
+    };
+
+    let (vh, ok) = auth(addr, &rw).await;
+    assert!(ok);
+    let mut chan = vh.channel_open_session().await.unwrap();
+    chan.request_pty(true, "xterm", 80, 24, 0, 0, &[])
+        .await
+        .unwrap();
+    chan.request_shell(true).await.unwrap();
+    // The kitty kitten's terminfo upload starts with this marker.
+    chan.data(&b"\nKITTY_DATA_START\nOK\nsomepayload\n"[..])
+        .await
+        .unwrap();
+
+    // The marker must NOT reach the host as input…
+    let leaked = host_wait_input(&mut hframed, Duration::from_millis(800)).await;
+    assert_eq!(leaked, None, "blocklisted input must never reach the host");
+
+    // …and the viewer's channel must be closed.
+    let closed = timeout(Duration::from_secs(5), async {
+        loop {
+            match chan.wait().await {
+                Some(ChannelMsg::Close) | Some(ChannelMsg::Eof) | None => break true,
+                Some(_) => continue,
+            }
+        }
+    })
+    .await
+    .unwrap_or(false);
+    assert!(closed, "blocklisted viewer must be disconnected");
+}
+
 #[tokio::test]
 async fn untrusted_host_key_is_rejected() {
     let trusted = PrivateKey::random(&mut rand::rng(), Algorithm::Ed25519).unwrap();

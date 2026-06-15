@@ -31,6 +31,11 @@ Notable changes, newest first. [Keep a Changelog](https://keepachangelog.com/) /
 - **Viewers are told when the host disconnects**: a `[choom] host disconnected — waiting
   for reconnect…` notice is shown while the relay waits out the grace window, instead of
   a silently frozen screen.
+- **Incompatible viewer clients are disconnected cleanly** instead of corrupting the host.
+  A viewer that requests `exec` (a remote command) or injects a client-bootstrap payload
+  — e.g. **kitty's `ssh` kitten**, which uploads terminfo/shell-integration as input — is
+  refused with a hint to use plain `ssh`, via an extensible input blocklist. The host and
+  other viewers are unaffected. (Verified end to end against kitty 0.44.)
 
 ### Notes
 

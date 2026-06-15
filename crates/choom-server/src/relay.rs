@@ -62,6 +62,7 @@ impl russh::server::Server for Relay {
             role: Role::Unknown,
             viewer: None,
             rate_ok,
+            blocked: false,
         }
     }
 
@@ -104,6 +105,9 @@ pub struct Conn {
     role: Role,
     viewer: Option<ViewerConn>,
     rate_ok: bool,
+    /// Set once this viewer hit the input blocklist; all further input is dropped while
+    /// its channel is being torn down (so the rest of the payload can't leak to the host).
+    blocked: bool,
 }
 
 fn reject() -> Auth {
@@ -111,6 +115,41 @@ fn reject() -> Auth {
         proceed_with_methods: None,
         partial_success: false,
     }
+}
+
+/// Markers in *viewer input* that identify a client trying to bootstrap/own the remote
+/// shell — unsupported through a relay, and disruptive (it injects a large payload into
+/// the host shell). A match disconnects that one viewer (host + others unaffected) with
+/// the paired hint. Extend this list as new offenders show up.
+const VIEWER_INPUT_BLOCKLIST: &[(&[u8], &str)] = &[
+    // kitty's `ssh` kitten uploads its terminfo + shell-integration as input, framed by
+    // `KITTY_DATA_START` … `KITTY_DATA_END`; it assumes it drives the remote shell's
+    // launch, which a relay cannot provide.
+    (
+        b"KITTY_DATA_START",
+        "the kitty ssh kitten isn't supported here — connect with plain `ssh`",
+    ),
+];
+
+/// Return the hint for the first blocklist marker present in `data`, if any.
+fn blocked_viewer_input(data: &[u8]) -> Option<&'static str> {
+    VIEWER_INPUT_BLOCKLIST.iter().find_map(|(marker, reason)| {
+        data.windows(marker.len())
+            .any(|w| w == *marker)
+            .then_some(*reason)
+    })
+}
+
+/// Show `reason` to a viewer and close its channel (the host + other viewers are
+/// untouched). Spawned because the close is async; the caller sets `blocked` first so no
+/// further input from this viewer is forwarded while the channel tears down.
+fn disconnect_viewer(session: &mut Session, channel: ChannelId, reason: &str) {
+    let handle = session.handle();
+    let msg = format!("\r\n\x1b[33m[choom] {reason}.\x1b[0m\r\n").into_bytes();
+    tokio::spawn(async move {
+        let _ = handle.data(channel, Bytes::from(msg)).await;
+        let _ = handle.close(channel).await;
+    });
 }
 
 impl Conn {
@@ -300,16 +339,34 @@ impl russh::server::Handler for Conn {
 
     async fn data(
         &mut self,
-        _channel: ChannelId,
+        channel: ChannelId,
         data: &[u8],
-        _session: &mut Session,
+        session: &mut Session,
     ) -> Result<(), Self::Error> {
+        let (sess, mode) = match &self.role {
+            Role::Viewer { session, mode } => (session.clone(), *mode),
+            _ => return Ok(()),
+        };
+        // Already kicked (blocklist/exec) — drop everything until the channel closes, so
+        // the rest of the offending payload can't leak to the host.
+        if self.blocked {
+            return Ok(());
+        }
+        // Some "smart" ssh clients try to take over the remote shell's startup by
+        // injecting a setup payload as input (it would flood/corrupt the host). A relay
+        // can't host that, so disconnect such a viewer with a hint instead. Applies to RO
+        // and RW alike (RO otherwise just hangs waiting for a reply that never comes).
+        if let Some(reason) = blocked_viewer_input(data) {
+            self.blocked = true;
+            warn!(ip = %self.peer_ip, reason, "disconnecting viewer: blocked input");
+            metrics::counter!("choom_viewers_blocked_total").increment(1);
+            disconnect_viewer(session, channel, reason);
+            return Ok(());
+        }
         // Read-write viewer keystrokes -> host. Read-only viewers: dropped here (the
         // hard RO/RW boundary).
-        if let Role::Viewer { session, mode } = &self.role {
-            if *mode == Mode::Rw {
-                session.send_to_host(Frame::Input(data.to_vec()));
-            }
+        if mode == Mode::Rw {
+            sess.send_to_host(Frame::Input(data.to_vec()));
         }
         Ok(())
     }
@@ -334,7 +391,10 @@ impl russh::server::Handler for Conn {
     }
 
     // RO viewers cannot break out: deny exec and subsystems for every viewer (only the
-    // interactive shell view is allowed).
+    // interactive shell view is allowed). A viewer never has a legitimate reason to run a
+    // remote command, and clients like kitty's `ssh` kitten use `exec` to bootstrap the
+    // remote shell — so refuse *and* disconnect with a hint, before they fall back to
+    // injecting a setup payload over a shell channel.
     async fn exec_request(
         &mut self,
         channel: ChannelId,
@@ -342,6 +402,14 @@ impl russh::server::Handler for Conn {
         session: &mut Session,
     ) -> Result<(), Self::Error> {
         session.channel_failure(channel)?;
+        self.blocked = true;
+        info!(ip = %self.peer_ip, "viewer attempted exec; refused and disconnected (view-only)");
+        metrics::counter!("choom_viewers_blocked_total").increment(1);
+        disconnect_viewer(
+            session,
+            channel,
+            "choom is view-only — connect with plain `ssh` (no remote command)",
+        );
         Ok(())
     }
 
