@@ -25,7 +25,7 @@ async fn records_output_to_a_private_cast_file() {
     session.on_output(b"rec-marker-xyz\r\n");
     tokio::time::sleep(Duration::from_millis(200)).await;
 
-    // File exists, is 0600, and parses as asciicast v2 with our content.
+    // File exists, is 0600, and parses as asciicast v2 (browser- and CLI-replayable).
     let meta = std::fs::metadata(&path).expect("cast file exists");
     #[cfg(unix)]
     {
@@ -40,8 +40,8 @@ async fn records_output_to_a_private_cast_file() {
     let mut lines = text.lines();
 
     let header: serde_json::Value = serde_json::from_str(lines.next().unwrap()).unwrap();
-    assert_eq!(header["version"], 3);
-    assert_eq!(header["term"]["cols"], 80);
+    assert_eq!(header["version"], 2);
+    assert_eq!(header["width"], 80);
 
     let found_marker = lines.any(|l| {
         serde_json::from_str::<serde_json::Value>(l)

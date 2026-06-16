@@ -271,41 +271,58 @@ async fn csp_allows_webassembly() {
     );
 }
 
-/// The viewer page carries a download button that the page reveals (via a `HEAD` probe of
-/// `/cast`) only when the session was recorded; an unrecorded session's `/cast` is 404.
+/// The viewer page carries a download button and decides live-vs-replay from a single
+/// `/status` request (no throwaway probe WebSocket).
 #[tokio::test]
-async fn download_button_and_cast_gated_on_recording() {
+async fn viewer_page_uses_status_endpoint() {
     let app = App::new(Config::default(), "SHA256:test".to_string());
 
-    // The viewer page ships the (initially hidden) download button + its HEAD probe.
     let body = axum::body::to_bytes(get(&app, "/s/sometoken").await.into_body(), usize::MAX)
         .await
         .unwrap();
     let html = String::from_utf8_lossy(&body);
     assert!(html.contains(r#"id="dl""#), "viewer page needs the download button");
     assert!(
-        html.contains("method: 'HEAD'"),
-        "viewer page must HEAD-probe /cast to decide whether to show the button"
+        html.contains("/status"),
+        "viewer page must read /status to decide live vs replay"
     );
+    assert!(
+        !html.contains("new WebSocket("),
+        "viewer page must not open a throwaway probe WebSocket"
+    );
+}
 
-    // A real session with no recording (Config::default has no record_dir): /cast is 404.
+/// `/status` reports `live` while the session exists and `recording` once a `.cast` is
+/// registered — the two bits the viewer page needs to pick live vs replay.
+#[tokio::test]
+async fn status_reports_live_and_recording() {
+    let app = App::new(Config::default(), "SHA256:test".to_string());
+
+    // Unknown token: neither live nor recorded.
+    let body = body_string(get(&app, "/s/nope/status").await).await;
+    assert!(body.contains("\"live\":false") && body.contains("\"recording\":false"), "{body}");
+
+    // Live session: live=true, recording=false (no record_dir).
     let (to_host, _rx) = tokio::sync::mpsc::channel(4);
     let session = app
         .create_session("owner-key".to_string(), 80, 24, to_host, Default::default())
         .expect("create session");
-    let cast = format!("/s/{}/cast", session.ro_token);
-    assert_eq!(get(&app, &cast).await.status(), StatusCode::NOT_FOUND);
-    let head = router(app.clone())
-        .oneshot(
-            Request::builder()
-                .method("HEAD")
-                .uri(&cast)
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(head.status(), StatusCode::NOT_FOUND);
+    let body = body_string(get(&app, &format!("/s/{}/status", session.ro_token)).await).await;
+    assert!(body.contains("\"live\":true"), "{body}");
+
+    // After the session ends but a recording is registered: live=false, recording=true.
+    let dir = std::env::temp_dir().join(format!("choom-status-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let cast_file = dir.join("rec.cast");
+    std::fs::write(&cast_file, b"{\"version\":2,\"width\":80,\"height\":24}\n").unwrap();
+    app.register_recording(&session.ro_token, &session.rw_token, cast_file);
+    app.remove_session(&session);
+    let body = body_string(get(&app, &format!("/s/{}/status", session.ro_token)).await).await;
+    assert!(
+        body.contains("\"live\":false") && body.contains("\"recording\":true"),
+        "{body}"
+    );
+    std::fs::remove_dir_all(&dir).ok();
 }
 
 /// A recording stays downloadable after the live session ends — `/cast` resolves via the

@@ -3,6 +3,26 @@
 Notable changes, newest first. [Keep a Changelog](https://keepachangelog.com/) /
 [SemVer](https://semver.org/).
 
+## [2.3.1] - 2026-06-16
+
+### Fixed
+
+- **In-browser replay of an ended session now works.** Two causes: (1) recordings were
+  written as asciicast **v3**, which the vendored asciinema-player (a v2 build) cannot
+  parse from a URL — so the replay just spun forever. Recordings are now **asciicast v2**
+  (absolute timestamps), still read by `asciinema play` **and** replayable in the browser.
+  (2) The viewer page decided live-vs-replay by opening a throwaway *probe* WebSocket that
+  connected and immediately disconnected — which churned the host's viewer roster (a
+  join → leave → join flurry in the host log). The page now reads a single
+  `GET /s/<token>/status` → `{ live, recording }` and picks live or replay from that.
+- **Download-recording button** is anchored to the terminal box. The player letterboxes
+  with `fit: 'both'`, so the button used to float in the black margin to the right of the
+  terminal; it is now placed at the terminal's top-right (and re-placed on resize).
+- **Host viewer logs no longer staircase.** `viewer joined` / `viewer left` were `info!`
+  lines whose bare `\n` laddered across the host's raw-mode terminal. They are now
+  `debug!`; the user-facing signal is the existing `\r\n`-correct inline notice (attached)
+  / live status block (`--detach`).
+
 ## [2.3.0] - 2026-06-16
 
 ### Added
