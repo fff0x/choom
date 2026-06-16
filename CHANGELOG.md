@@ -3,6 +3,19 @@
 Notable changes, newest first. [Keep a Changelog](https://keepachangelog.com/) /
 [SemVer](https://semver.org/).
 
+## [2.3.2] - 2026-06-16
+
+### Fixed
+
+- **Host logs no longer staircase in an attached session.** During `choom host` (attached)
+  the terminal is in raw mode, where the kernel's LF→CRLF translation is off — so any log
+  line written with a bare `\n` left the cursor mid-line and the next output (the shell, or
+  the next log) "staircased". The host now installs a CRLF-translating log writer in
+  attached mode, so warnings (and anything surfaced via `RUST_LOG`) render at column 0.
+  This complements 2.3.1, which already demoted the per-viewer join/leave lines to `debug!`
+  in favour of the `\r\n`-correct inline notice — note you must run the **2.3.2 host binary**
+  to see the fix (an `INFO choom_host: viewer joined` line means an older binary is running).
+
 ## [2.3.1] - 2026-06-16
 
 ### Fixed
