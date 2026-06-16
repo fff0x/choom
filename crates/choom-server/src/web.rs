@@ -433,11 +433,24 @@ text-decoration:none;border:1px solid #555;box-shadow:0 1px 4px rgba(0,0,0,.5)}
     setTimeout(placeDownload, 300);
     addEventListener('resize', placeDownload);
   }
+  let livePlayer = null, endWatch = null;
   function mountLive() {
     // autoPlay is essential: without it the player shows a black poster and does not
     // even open the WebSocket until clicked. fit:'both' needs the sized #player above.
-    AsciinemaPlayer.create({ driver: 'websocket', url }, el, opts);
+    livePlayer = AsciinemaPlayer.create({ driver: 'websocket', url }, el, opts);
     requestAnimationFrame(placeDownload);
+    // The live/replay decision is made once at load. If the session ends while this page is
+    // open, the live socket just closes and the player would spin forever — so poll /status
+    // and, once the session is gone, switch to the recording in place (no manual reload).
+    endWatch = setInterval(function () {
+      fetch(`/s/${token}/status`).then(r => r.json()).then(s => {
+        if (s.live) return;
+        clearInterval(endWatch); endWatch = null;
+        try { if (livePlayer) livePlayer.dispose(); } catch (e) {}
+        if (s.recording) mountReplay();
+        else showMessage('this session has ended.');
+      }).catch(() => {});
+    }, 3000);
   }
   function mountReplay() {
     el.innerHTML = '';
