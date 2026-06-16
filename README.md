@@ -95,7 +95,8 @@ is a full tmux fork; choom keeps only the sharing core.
 - **Web (output-only)** browser view served as a live [asciicast](https://docs.asciinema.org/)
   stream (asciinema-player); landing page at `/`. A recorded session **replays in the
   browser** after it ends (the live link falls back to the recording).
-- **asciicast v3 recording** (opt-in per session), with age/size retention.
+- **asciicast v2 recording** (opt-in per session), with age/size retention — replayable
+  both by `asciinema play` and in the browser viewer.
 - **`choom view <token>`** — attach as a viewer without hand-writing `ssh` (adds the right
   `-p`, runs the real `ssh` binary). **`choom clients [--watch]`** — list/live-watch the
   viewers of your session (mode, transport, IP, size).
@@ -157,8 +158,9 @@ See `choom <cmd> --help` for the full list and env vars, and
 ## Recordings · Config
 
 - **Recordings** — enable storage on the relay (`-r DIR` / `CHOOM_RECORD_DIR`), then
-  `choom host --record` (or force all with `--record-all`). asciicast v3, `0600`,
-  pruned by age/size. Download at `/s/<ro-token>/cast`; play with `asciinema play`.
+  `choom host --record` (or force all with `--record-all`). asciicast v2, `0600`,
+  pruned by age/size. Download at `/s/<ro-token>/cast`; play with `asciinema play` or
+  replay it in the browser viewer after the session ends.
 - **Config** — any options can come from YAML: `choom server -c choom.yaml` (CLI
   overrides). See [docs/config.yaml](docs/config.yaml).
 - **Logging / metrics** — `CHOOM_LOG_FORMAT=json` for structured logs; `GET /metrics`

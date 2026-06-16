@@ -75,23 +75,27 @@ period without a resume, the session is dropped.
 `choom server -w ADDR` serves a **read-only** browser view (axum) rendered by a
 **self-hosted** [asciinema-player](https://docs.asciinema.org/) (vendored at `/assets`,
 no CDN). The WebSocket at `/s/<ro-token>/stream` speaks the player's live format — a
-top-level `{cols,rows}` header then absolute-time `[t,"o",data]` events (the player's
-WS driver doesn't consume the v3 file format). It is structurally output-only (the WS
-ignores all inbound frames). Auth is the token in the URL — no cookies; responses carry
-hardening headers (`Referrer-Policy: no-referrer`, `X-Content-Type-Options`,
-`X-Frame-Options`, CSP — `object-src/base-uri/frame-ancestors 'none'`). Other routes:
-landing `/`, recording `/s/<ro-token>/cast`, prebuilt binaries `/download`. File routes
-(`/cast`, `/download/{file}`) stream from disk (never read whole into memory) and share a
-bounded download-concurrency slot pool, so the web view can't be made a memory/bandwidth
-amplifier; `/download/{file}` names are whitelisted to `[A-Za-z0-9._-]`. Metrics are not
-on this listener (see below).
+reset message carrying `{cols, rows, time, init}` then absolute-time `[t,"o",data]`
+events (a bespoke live format, separate from the recording's file format). It is
+structurally output-only (the WS ignores all inbound frames). Auth is the token in the
+URL — no cookies; responses carry hardening headers (`Referrer-Policy: no-referrer`,
+`X-Content-Type-Options`, `X-Frame-Options`, CSP — `object-src/base-uri/frame-ancestors
+'none'`). The viewer page reads `/s/<ro-token>/status` (`{live, recording}`) once to pick
+between watching live and replaying the recording in place after the session ends. Other
+routes: landing `/`, recording `/s/<ro-token>/cast`, prebuilt binaries `/download`,
+health `/healthz`. File routes (`/cast`, `/download/{file}`) stream from disk (never read
+whole into memory) and share a bounded download-concurrency slot pool, so the web view
+can't be made a memory/bandwidth amplifier; `/download/{file}` names are whitelisted to
+`[A-Za-z0-9._-]`. Metrics are not on this listener (see below).
 
 ## Recording
 
 Recording is opt-in per session (`choom host --record`, sent as a `Record` control
 frame) and requires the relay to have storage enabled (`-r DIR`); `--record-all`
-forces it. Output is written as [asciicast v3](https://docs.asciinema.org/) (`0600`),
-pruned hourly by age and total size.
+forces it. Output is written as [asciicast v2](https://docs.asciinema.org/) (`0600`),
+pruned hourly by age and total size. v2 (absolute timestamps) is what both `asciinema
+play` and the vendored browser player can replay — so the same `.cast` plays on the CLI
+and in the web viewer.
 
 ## Observability
 
