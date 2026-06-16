@@ -217,7 +217,9 @@ pub fn run() -> Result<()> {
 
 /// Run the host with an explicit config on its own Tokio runtime.
 pub fn run_with(cfg: HostConfig) -> Result<()> {
-    init_tracing();
+    // Attached (non-detached) mode puts the terminal in raw mode for the session; tell the
+    // logger to emit CRLF so log lines don't staircase across the shared screen.
+    init_tracing(!cfg.detach);
     let rt = tokio::runtime::Runtime::new().context("build tokio runtime")?;
     let result = rt.block_on(host(cfg));
     // `tokio::io::stdin()` reads on a blocking thread whose read cannot be cancelled. The
@@ -229,14 +231,56 @@ pub fn run_with(cfg: HostConfig) -> Result<()> {
     result
 }
 
-fn init_tracing() {
+fn init_tracing(attached: bool) {
     use tracing_subscriber::{fmt, EnvFilter};
     let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
     let json = std::env::var("CHOOM_LOG_FORMAT").is_ok_and(|v| v.eq_ignore_ascii_case("json"));
     if json {
         let _ = fmt().with_env_filter(filter).json().try_init();
+    } else if attached {
+        // During an attached session the terminal is in raw mode, where the kernel's ONLCR
+        // (LF -> CRLF) translation is off: a bare LF from the log formatter leaves the
+        // cursor mid-line, so the next output "staircases". Emit CRLF ourselves so any log
+        // line (a warning, or anything surfaced via RUST_LOG) renders at column 0.
+        let _ = fmt()
+            .with_env_filter(filter)
+            .with_ansi(false)
+            .with_writer(CrlfMakeWriter)
+            .try_init();
     } else {
         let _ = fmt().with_env_filter(filter).try_init();
+    }
+}
+
+/// A tracing writer that rewrites `\n` to `\r\n` (for the host's raw-mode terminal) and
+/// writes to stdout. See [`init_tracing`].
+struct CrlfWriter;
+
+impl std::io::Write for CrlfWriter {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        let mut out = std::io::stdout().lock();
+        let mut last = 0;
+        for (i, &b) in buf.iter().enumerate() {
+            if b == b'\n' {
+                out.write_all(&buf[last..i])?;
+                out.write_all(b"\r\n")?;
+                last = i + 1;
+            }
+        }
+        out.write_all(&buf[last..])?;
+        Ok(buf.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        std::io::stdout().flush()
+    }
+}
+
+struct CrlfMakeWriter;
+
+impl tracing_subscriber::fmt::MakeWriter<'_> for CrlfMakeWriter {
+    type Writer = CrlfWriter;
+    fn make_writer(&self) -> Self::Writer {
+        CrlfWriter
     }
 }
 
@@ -864,7 +908,7 @@ pub fn run_clients(
     use_default_key: bool,
     watch: bool,
 ) -> Result<()> {
-    init_tracing();
+    init_tracing(false); // `clients` doesn't take over the terminal in raw mode
     let rt = tokio::runtime::Runtime::new().context("build tokio runtime")?;
     if !watch {
         return rt.block_on(clients_async(identity, use_default_key));
