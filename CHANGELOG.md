@@ -3,6 +3,18 @@
 Notable changes, newest first. [Keep a Changelog](https://keepachangelog.com/) /
 [SemVer](https://semver.org/).
 
+## [2.3.3] - 2026-06-16
+
+### Fixed
+
+- **A recorded web session that ends while the page is open now switches to replay on its
+  own** (previously it kept spinning until a manual reload). The live-vs-replay choice is
+  made once at page load; if the session ends afterwards, the live WebSocket just closes and
+  the player would spin. The viewer page now polls `/s/<token>/status` while watching live
+  and, once the session is gone, disposes the live player and replays the recording in place
+  (or shows a short "session has ended" notice when there is no recording). Reloading already
+  worked — this makes the open page transition without a reload.
+
 ## [2.3.2] - 2026-06-16
 
 ### Fixed
