@@ -52,7 +52,6 @@ pub fn start(session: &Arc<SessionShared>, dir: &Path) -> std::io::Result<PathBu
 
     tokio::spawn(async move {
         let start = Instant::now();
-        let mut clock = asciicast::Clock::default();
         if file.write_all(header.as_bytes()).await.is_err()
             || file.write_all(snap_event.as_bytes()).await.is_err()
         {
@@ -64,9 +63,10 @@ pub fn start(session: &Arc<SessionShared>, dir: &Path) -> std::io::Result<PathBu
                 _ = cancel.cancelled() => break,
                 msg = rx.recv() => match msg {
                     Ok(bytes) => {
-                        let interval = clock.interval(start.elapsed().as_secs_f64());
+                        // asciicast v2 uses absolute timestamps (seconds since start).
+                        let t = start.elapsed().as_secs_f64();
                         let line = asciicast::event_line(
-                            interval, Code::Output, &String::from_utf8_lossy(&bytes),
+                            t, Code::Output, &String::from_utf8_lossy(&bytes),
                         );
                         if file.write_all(line.as_bytes()).await.is_err() {
                             break;

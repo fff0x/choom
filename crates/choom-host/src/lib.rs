@@ -24,7 +24,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::mpsc;
 use tokio_util::codec::Framed;
 use tokio_util::sync::CancellationToken;
-use tracing::{info, warn};
+use tracing::{debug, warn};
 
 mod term;
 
@@ -578,12 +578,16 @@ async fn run_host(cfg: HostConfig, hooks: Hooks) -> Result<()> {
                             }
                         }
                         Frame::Control(Control::Join(c)) => {
-                            info!(viewer = c.id, ip = %c.ip, mode = ?c.mode, "viewer joined");
+                            // `debug!`, not `info!`: when attached, the host terminal is in
+                            // raw mode, where a bare `\n` from the log formatter staircases.
+                            // The user-facing signal is the `\r\n`-correct inline notice
+                            // (attached) / status block (detached) below.
+                            debug!(viewer = c.id, ip = %c.ip, mode = ?c.mode, "viewer joined");
                             roster.insert(c.id, c.clone());
                             viewers_changed(&mut stdout, &hooks, &cfg, &roster, Some(&c), &mut detach_painted).await;
                         }
                         Frame::Control(Control::Leave { id }) => {
-                            info!(viewer = id, "viewer left");
+                            debug!(viewer = id, "viewer left");
                             roster.remove(&id);
                             viewers_changed(&mut stdout, &hooks, &cfg, &roster, None, &mut detach_painted).await;
                         }

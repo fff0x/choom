@@ -30,6 +30,7 @@ pub fn router(app: Arc<App>) -> Router {
         .route("/", get(landing))
         .route("/s/{token}", get(viewer_page))
         .route("/s/{token}/stream", get(ws_stream))
+        .route("/s/{token}/status", get(session_status))
         .route("/s/{token}/cast", get(cast_download))
         .route("/assets/asciinema-player.min.js", get(asset_js))
         .route("/assets/asciinema-player.css", get(asset_css))
@@ -179,6 +180,17 @@ async fn stream_session(socket: WebSocket, session: Arc<SessionShared>) {
         }
     }
     session.remove_viewer(id);
+}
+
+/// `GET /s/{token}/status` — JSON `{ "live": bool, "recording": bool }`. The viewer page
+/// reads this once to decide between watching live and replaying the recording, instead of
+/// opening a throwaway probe WebSocket (which caused a connect/disconnect churn on the
+/// host). `live` = there is a live session for this token; `recording` = a `.cast` exists.
+async fn session_status(State(app): State<Arc<App>>, Path(token): Path<String>) -> Response {
+    let live = app.lookup_token(&token).is_some();
+    let recording = app.recording_path(&token).is_some();
+    let body = format!("{{\"live\":{live},\"recording\":{recording}}}");
+    ([(header::CONTENT_TYPE, "application/json")], body).into_response()
 }
 
 /// `GET /s/{token}/cast` — download this session's asciicast recording, if any.
@@ -403,36 +415,50 @@ text-decoration:none;border:1px solid #555;box-shadow:0 1px 4px rgba(0,0,0,.5)}
   const url = `${proto}://${location.host}/s/${token}/stream`;
   const cast = `/s/${token}/cast`;
   const el = document.getElementById('player');
+  const dl = document.getElementById('dl');
   const opts = { fit: 'both', autoPlay: true, terminalFontSize: 'small' };
-  // Probe whether this session was recorded — reveals the download button and decides
-  // the fallback below.
-  let recording = fetch(cast, { method: 'HEAD' }).then(r => {
-    if (r.ok) { const a = document.getElementById('dl'); a.href = cast; a.style.display = 'block'; }
-    return r.ok;
-  }).catch(() => false);
+  // The player letterboxes with fit:'both', so the viewport's right edge sits outside the
+  // terminal. Anchor the download button to the actual terminal box (re-placed on resize).
+  function placeDownload() {
+    const term = el.querySelector('.ap-terminal') || el.querySelector('.ap-player') || el;
+    const r = term.getBoundingClientRect();
+    if (r.width) {
+      dl.style.top = Math.max(8, r.top + 8) + 'px';
+      dl.style.right = Math.max(8, window.innerWidth - r.right + 8) + 'px';
+    }
+  }
+  function showDownload() {
+    dl.href = cast; dl.style.display = 'block';
+    requestAnimationFrame(placeDownload);
+    setTimeout(placeDownload, 300);
+    addEventListener('resize', placeDownload);
+  }
   function mountLive() {
     // autoPlay is essential: without it the player shows a black poster and does not
     // even open the WebSocket until clicked. fit:'both' needs the sized #player above.
     AsciinemaPlayer.create({ driver: 'websocket', url }, el, opts);
+    requestAnimationFrame(placeDownload);
   }
-  function mountReplay() { el.innerHTML = ''; AsciinemaPlayer.create(cast, el, opts); }
+  function mountReplay() {
+    el.innerHTML = '';
+    AsciinemaPlayer.create(cast, el, opts); // a recorded v2 .cast, replayable in-browser
+    requestAnimationFrame(placeDownload);
+  }
   function showMessage(msg) {
     document.body.innerHTML = '<p style="color:#ccc;font-family:monospace;padding:1rem">' + msg + '</p>';
   }
   if (!window.AsciinemaPlayer) {
     showMessage('asciinema-player asset missing (vendoring pending). WS: ' + url);
   } else {
-    // Decide live vs replay: probe the live stream first. If it is up, watch live; if it
-    // is gone (session ended / unknown token) replay the recording when one exists, so a
-    // recorded session stays watchable in the browser after it ends.
-    let decided = false;
-    const probe = new WebSocket(url);
-    probe.onopen = () => { decided = true; try { probe.close(); } catch (e) {} mountLive(); };
-    probe.onerror = () => {
-      if (decided) return; decided = true;
-      recording.then(ok => ok ? mountReplay()
-        : showMessage('session not live and no recording available.'));
-    };
+    // One status request decides live vs replay — no throwaway probe WebSocket (which used
+    // to connect+disconnect and churn the host's viewer roster). Live -> watch live; ended
+    // but recorded -> replay the recording in place; otherwise a short notice.
+    fetch(`/s/${token}/status`).then(r => r.json()).then(s => {
+      if (s.recording) showDownload();
+      if (s.live) mountLive();
+      else if (s.recording) mountReplay();
+      else showMessage('this session is not live' + (s.recording ? '' : ' and has no recording') + '.');
+    }).catch(() => mountLive());
   }
 </script>
 </body></html>"#;
