@@ -3,6 +3,30 @@
 Notable changes, newest first. [Keep a Changelog](https://keepachangelog.com/) /
 [SemVer](https://semver.org/).
 
+## [2.3.4] - 2026-06-16
+
+### Fixed
+
+- **The web live view now follows the host's terminal size.** The live stream only sent the
+  size once (in the player's reset message), so when the host resized — or a smaller
+  read-write viewer joined/left and the relay renegotiated — the browser repainted the new
+  screen into the *old* grid and the player never changed dimensions. The live WebSocket now
+  emits an asciicast resize event (`[t,"r","<cols>x<rows>"]`) whenever the negotiated size
+  changes, just before the repaint, so the player's terminal grows/shrinks with the session.
+- **A recording replayed in the browser starts paused** on its first frame instead of
+  auto-playing. When a session ends and the page switches to the recording (or the page is
+  opened after the session ended), the viewer now presses play themselves. (The *live* view
+  still auto-plays — that is required for it to open the stream at all.)
+
+### Changed
+
+- **`choom host` (attached) no longer prints an inline viewer join/leave notice.** Fired into
+  the shared raw-mode terminal it raced the shell's own output and was unreliable (sometimes
+  missing, sometimes staircased). The live roster is in **`choom clients`** instead; the
+  in-place status block in **`choom host --detach`** is unchanged.
+- **`choom clients` output is clearer**: a summary line (`N viewers connected (X ssh, Y web)`),
+  a ruled header, and human-readable connection ages (`45s`, `5m12s`, `1h02m`).
+
 ## [2.3.3] - 2026-06-16
 
 ### Fixed

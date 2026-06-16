@@ -158,12 +158,33 @@ async fn stream_session(socket: WebSocket, session: Arc<SessionShared>) {
     }
 
     let cancel = session.cancel.clone();
+    // Track the negotiated size we last told the player. When it changes (the host
+    // resized, or a smaller read-write viewer joined/left), the relay re-broadcasts a
+    // snapshot — but the player's terminal grid stays at the size from the reset message
+    // unless we also send an asciicast resize event. Emit `[t,"r","CxR"]` *before* the
+    // snapshot repaint so the browser terminal actually grows/shrinks with the host.
+    let mut cur = (cols, rows);
     loop {
         tokio::select! {
             _ = cancel.cancelled() => break,
             msg = rx.recv() => match msg {
                 Ok(bytes) => {
                     let t = start.elapsed().as_secs_f64();
+                    let now_size = {
+                        let st = session.state.lock().unwrap();
+                        (st.neg_cols, st.neg_rows)
+                    };
+                    if now_size != cur {
+                        cur = now_size;
+                        let r = asciicast::event_line(
+                            t,
+                            Code::Resize,
+                            &format!("{}x{}", now_size.0, now_size.1),
+                        );
+                        if tx.send(Message::text(r)).await.is_err() {
+                            break;
+                        }
+                    }
                     let line = asciicast::event_line(t, Code::Output, &String::from_utf8_lossy(&bytes));
                     if tx.send(Message::text(line)).await.is_err() {
                         break;
@@ -417,6 +438,9 @@ text-decoration:none;border:1px solid #555;box-shadow:0 1px 4px rgba(0,0,0,.5)}
   const el = document.getElementById('player');
   const dl = document.getElementById('dl');
   const opts = { fit: 'both', autoPlay: true, terminalFontSize: 'small' };
+  // A recording is replayed paused on its first frame (poster), so the viewer presses
+  // play themselves instead of having it auto-run from the start.
+  const replayOpts = { fit: 'both', autoPlay: false, terminalFontSize: 'small', poster: 'npt:0:0' };
   // The player letterboxes with fit:'both', so the viewport's right edge sits outside the
   // terminal. Anchor the download button to the actual terminal box (re-placed on resize).
   function placeDownload() {
@@ -454,7 +478,7 @@ text-decoration:none;border:1px solid #555;box-shadow:0 1px 4px rgba(0,0,0,.5)}
   }
   function mountReplay() {
     el.innerHTML = '';
-    AsciinemaPlayer.create(cast, el, opts); // a recorded v2 .cast, replayable in-browser
+    AsciinemaPlayer.create(cast, el, replayOpts); // a recorded v2 .cast, paused on frame 0
     requestAnimationFrame(placeDownload);
   }
   function showMessage(msg) {

@@ -628,12 +628,12 @@ async fn run_host(cfg: HostConfig, hooks: Hooks) -> Result<()> {
                             // (attached) / status block (detached) below.
                             debug!(viewer = c.id, ip = %c.ip, mode = ?c.mode, "viewer joined");
                             roster.insert(c.id, c.clone());
-                            viewers_changed(&mut stdout, &hooks, &cfg, &roster, Some(&c), &mut detach_painted).await;
+                            viewers_changed(&mut stdout, &cfg, &roster, &mut detach_painted).await;
                         }
                         Frame::Control(Control::Leave { id }) => {
                             debug!(viewer = id, "viewer left");
                             roster.remove(&id);
-                            viewers_changed(&mut stdout, &hooks, &cfg, &roster, None, &mut detach_painted).await;
+                            viewers_changed(&mut stdout, &cfg, &roster, &mut detach_painted).await;
                         }
                         Frame::Control(Control::Error { msg }) => {
                             warn!(%msg, "relay error");
@@ -788,33 +788,18 @@ async fn print_banner(stdout: &mut tokio::io::Stdout, ready: &Ready, cfg: &HostC
     let _ = stdout.flush().await;
 }
 
-/// React to a viewer roster change: a transient one-line notice when the host's terminal
-/// is attached, or an in-place status block when detached. `joined` is the new viewer on
-/// a join, `None` on a leave. No-op when neither attached nor detached (test/embedding).
+/// React to a viewer roster change. In `--detach` mode (the host owns the screen) this
+/// redraws the in-place status block. In an **attached** session it does nothing on
+/// purpose: an inline join/leave notice fired into the shared raw-mode terminal proved
+/// unreliable (it raced the shell's own output and sometimes staircased / got overwritten),
+/// so the live roster lives in `choom clients` instead. No-op in tests/embedding.
 async fn viewers_changed(
     stdout: &mut tokio::io::Stdout,
-    hooks: &Hooks,
     cfg: &HostConfig,
     roster: &std::collections::BTreeMap<u64, Client>,
-    joined: Option<&Client>,
     detach_painted: &mut bool,
 ) {
-    if hooks.attach_terminal {
-        let line = match joined {
-            Some(c) => format!(
-                "\r\n\x1b[2m[choom] viewer {} joined ({}) — {} watching\x1b[0m\r\n",
-                c.ip,
-                mode_short(c.mode),
-                roster.len()
-            ),
-            None => format!(
-                "\r\n\x1b[2m[choom] viewer left — {} watching\x1b[0m\r\n",
-                roster.len()
-            ),
-        };
-        let _ = stdout.write_all(line.as_bytes()).await;
-        let _ = stdout.flush().await;
-    } else if cfg.detach {
+    if cfg.detach {
         paint_detach_status(stdout, roster, detach_painted).await;
     }
 }
@@ -1014,9 +999,22 @@ fn print_roster(list: &[Client]) {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs())
         .unwrap_or(0);
+    // Summary line first: total + a breakdown by transport, so you see the shape at a
+    // glance before reading the table.
+    let (ssh, web) = list.iter().fold((0u32, 0u32), |(s, w), c| match c.transport {
+        Transport::Ssh => (s + 1, w),
+        Transport::Web => (s, w + 1),
+    });
+    let noun = if list.len() == 1 { "viewer" } else { "viewers" };
+    println!("{} {noun} connected ({ssh} ssh, {web} web)\n", list.len());
     println!(
-        "{:>3}  {:<4} {:<4} {:<16} {:<9} FOR",
+        "  {:>3}  {:<4} {:<3}  {:<16}  {:<9}  FOR",
         "ID", "MODE", "VIA", "IP", "SIZE"
+    );
+    // A unicode rule under the header (empty string padded with `─` to each column width).
+    println!(
+        "  {:─>3}  {:─<4} {:─<3}  {:─<16}  {:─<9}  {:─<7}",
+        "", "", "", "", "", ""
     );
     for c in list {
         let mode = match c.mode {
@@ -1027,16 +1025,27 @@ fn print_roster(list: &[Client]) {
             Transport::Ssh => "ssh",
             Transport::Web => "web",
         };
-        let secs = now.saturating_sub(c.connected_at);
         println!(
-            "{:>3}  {:<4} {:<4} {:<16} {:<9} {}s",
+            "  {:>3}  {:<4} {:<3}  {:<16}  {:<9}  {}",
             c.id,
             mode,
             via,
             c.ip,
             format!("{}x{}", c.cols, c.rows),
-            secs
+            humanize_secs(now.saturating_sub(c.connected_at)),
         );
+    }
+}
+
+/// A compact human-readable duration: `45s`, `5m12s`, `1h02m`.
+fn humanize_secs(secs: u64) -> String {
+    let (h, m, s) = (secs / 3600, (secs % 3600) / 60, secs % 60);
+    if h > 0 {
+        format!("{h}h{m:02}m")
+    } else if m > 0 {
+        format!("{m}m{s:02}s")
+    } else {
+        format!("{s}s")
     }
 }
 
@@ -1060,6 +1069,14 @@ mod tests {
         );
         // On the default SSH port the `-p` is omitted for a clean link.
         assert_eq!(viewer_ssh_cmd("TOK", "choom.sh", 22), "ssh TOK@choom.sh");
+    }
+
+    #[test]
+    fn humanize_secs_formats_compactly() {
+        assert_eq!(humanize_secs(0), "0s");
+        assert_eq!(humanize_secs(45), "45s");
+        assert_eq!(humanize_secs(312), "5m12s"); // 5*60 + 12
+        assert_eq!(humanize_secs(3720), "1h02m"); // 1*3600 + 2*60
     }
 
     #[test]
