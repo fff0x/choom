@@ -1,5 +1,7 @@
 # choom
 
+[![CI](https://img.shields.io/endpoint?url=https%3A%2F%2Fci.this-is-fine.io%2Fbadge%2Fchoom.json)](https://ci.this-is-fine.io/)
+
 **Minimal SSH terminal sharing relay.** A host shares its local shell through a
 central SSH relay; viewers connect with **stock `ssh`** over a read-only or
 read-write link — no client to install. Optional: a read-only browser view and
