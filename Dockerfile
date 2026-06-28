@@ -25,7 +25,8 @@ FROM scratch
 
 ARG CAT=choom
 ARG APP=relay
-ARG APP_VERSION=2.2.0
+# Fallback for a direct `docker build`; `task image` injects the workspace version.
+ARG APP_VERSION=2.4.0
 ARG APP_DESCRIPTION="choom — minimal SSH terminal sharing relay"
 
 LABEL \

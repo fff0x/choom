@@ -31,10 +31,13 @@
         choom =
           let
             craneLib = crane.mkLib final;
+            # Read the version from the workspace manifest so it never drifts from the
+            # released crate version (it was previously hard-coded and went stale).
+            cargoToml = builtins.fromTOML (builtins.readFile (self + "/Cargo.toml"));
           in
           craneLib.buildPackage {
             pname = "choom";
-            version = "2.2.0";
+            version = cargoToml.workspace.package.version;
             # Use the full (git-tracked) flake source, not cleanCargoSource: the build
             # embeds non-Cargo files (the bundled default key, gzipped web assets) via
             # include_bytes!/include_str!, and postInstall needs the man pages.

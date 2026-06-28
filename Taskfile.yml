@@ -50,8 +50,12 @@ tasks:
     desc: build the relay container image (static musl on scratch)
     vars:
       TAG: '{{.TAG | default "choom/relay:dev"}}'
+      # Inject the workspace version so the image's OCI version label stays in sync
+      # with Cargo.toml (instead of relying on the Dockerfile ARG default).
+      VERSION:
+        sh: sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1
     cmds:
-      - "docker build -t {{.TAG}} ."
+      - "docker build --build-arg APP_VERSION={{.VERSION}} -t {{.TAG}} ."
 
   clean:
     desc: remove build artifacts
