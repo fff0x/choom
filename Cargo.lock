@@ -363,7 +363,7 @@ dependencies = [
 
 [[package]]
 name = "choom-cli"
-version = "2.3.4"
+version = "2.4.0"
 dependencies = [
  "anyhow",
  "choom-host",
@@ -377,7 +377,7 @@ dependencies = [
 
 [[package]]
 name = "choom-host"
-version = "2.3.4"
+version = "2.4.0"
 dependencies = [
  "anyhow",
  "choom-proto",
@@ -397,7 +397,7 @@ dependencies = [
 
 [[package]]
 name = "choom-proto"
-version = "2.3.4"
+version = "2.4.0"
 dependencies = [
  "base64",
  "bytes",
@@ -410,7 +410,7 @@ dependencies = [
 
 [[package]]
 name = "choom-server"
-version = "2.3.4"
+version = "2.4.0"
 dependencies = [
  "anyhow",
  "avt",
@@ -3154,7 +3154,7 @@ dependencies = [
 
 [[package]]
 name = "xtask"
-version = "2.3.4"
+version = "2.4.0"
 dependencies = [
  "anyhow",
  "choom-cli",

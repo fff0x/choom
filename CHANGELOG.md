@@ -3,6 +3,43 @@
 Notable changes, newest first. [Keep a Changelog](https://keepachangelog.com/) /
 [SemVer](https://semver.org/).
 
+## [2.4.0] - 2026-06-28
+
+### Security
+
+- **Web live viewers now share the per-session viewer cap, and the live-stream WebSocket is
+  rate limited per source IP.** The browser stream path (`/s/<token>/stream`) attached
+  viewers without the `--max-viewers` check the SSH path enforces, and the web listener had
+  no rate limit — so anyone holding a read-only token (which is meant to be shared, and is
+  embedded in the web URL) could open unbounded live connections and exhaust the relay's
+  memory and file descriptors. The cap is now enforced atomically for SSH and web alike
+  (one lock, no check-then-act gap), and the stream upgrade is per-IP rate limited.
+- **A robustness fuzz test guards the screen-model parse path.** The release binary is built
+  `panic = "abort"`, so any panic in a session task aborts the whole multi-tenant relay. A
+  new test feeds adversarial and seeded-random host output through `on_output` → `avt` →
+  snapshot and asserts it never panics; the trade-off is documented in `docs/ARCHITECTURE.md`.
+
+### Fixed
+
+- **A multibyte UTF-8 character split across two output frames no longer corrupts the server
+  screen model.** Output was UTF-8-decoded per frame, so a character split at a frame
+  boundary became `U+FFFD` in the join snapshot, the recording, and the web view (the raw SSH
+  live path was unaffected). Output is now reassembled across frames, so snapshot, live,
+  recording, and web view stay byte-consistent.
+- **The recordings registry no longer grows unbounded.** Entries are kept past session end so
+  the web download keeps working, but they were never removed — a slow leak over the process
+  lifetime. They are now pruned after the hourly retention GC (and when a file disappears).
+- **A host resuming exactly at the end of the grace period can no longer be torn down by the
+  expiry timer.** The connected-state transition is now serialized with the grace timer.
+- **A viewer that falls behind the live broadcast now resyncs** by repainting from the current
+  screen (SSH) / re-sending a reset (web), instead of staying permanently corrupted.
+
+### Changed
+
+- The host re-clamps a relay-sent resize to the allowed range (defense in depth).
+- The `/download` directory listing is read asynchronously, so a flood of requests can't
+  stall the web server's runtime threads.
+
 ## [2.3.4] - 2026-06-16
 
 ### Fixed
