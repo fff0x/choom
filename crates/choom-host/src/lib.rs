@@ -599,6 +599,10 @@ async fn run_host(cfg: HostConfig, hooks: Hooks) -> Result<()> {
                             pty_cmd_tx.send(PtyCmd::Write(term::strip_da_replies(&bytes))).ok();
                         }
                         Frame::Control(Control::Resize { cols, rows }) => {
+                            // Re-clamp defensively: the relay already clamps, but the host
+                            // must not apply a degenerate PTY size from a buggy/compromised
+                            // relay.
+                            let (cols, rows) = proto::clamp_size(cols, rows);
                             pty_cmd_tx.send(PtyCmd::Resize(cols, rows)).ok();
                         }
                         Frame::Control(Control::Ready(ready)) => {

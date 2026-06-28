@@ -106,6 +106,19 @@ to loopback/a private interface): sessions created/active, viewers joined/active
 relayed, tokens rejected, rate-limit and untrusted-host drops. Graceful drain on `SIGTERM` (stop accepting, end sessions, exit) for clean
 rolling restarts.
 
+## Failure model
+
+The release profile is `panic = "abort"` (a single static musl binary is the distribution
+goal, and `panic` can only be set per-profile, not per-crate). On a multi-tenant relay that
+means **any** panic in a session/connection task aborts the whole process and drops every
+session — there is no per-task isolation (and `catch_unwind` can't help under `abort`). This
+is an accepted trade-off for binary size. The one attacker-reachable parsing path — host
+output fed into the `avt` screen model and rendered to a snapshot — is guarded by a
+robustness fuzz test (`crates/choom-server/tests/avt_fuzz.rs`) that feeds adversarial and
+seeded-random bytes through `on_output` → `avt` → `render::snapshot` and asserts it never
+panics. If task-level isolation is ever required, switch the server build to `panic =
+"unwind"` and wrap the per-session tasks in `catch_unwind`.
+
 ## Why no tmux
 
 choom keeps only the *sharing* core. Panes, windows, copy-mode, config, and HTML5

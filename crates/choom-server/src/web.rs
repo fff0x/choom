@@ -10,7 +10,7 @@ use std::time::Instant;
 
 use axum::body::Body;
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
-use axum::extract::{Path, State};
+use axum::extract::{ConnectInfo, Path, State};
 use axum::http::{header, HeaderValue, Method, StatusCode};
 use axum::middleware::{self, Next};
 use axum::response::{Html, IntoResponse, Response};
@@ -64,7 +64,14 @@ pub fn metrics_router(app: Arc<App>) -> Router {
 pub async fn serve_web(app: Arc<App>, addr: SocketAddr) -> anyhow::Result<()> {
     let listener = tokio::net::TcpListener::bind(addr).await?;
     info!(%addr, "choom web view listening");
-    axum::serve(listener, router(app)).await?;
+    // `into_make_service_with_connect_info` exposes the peer address to handlers via
+    // `ConnectInfo<SocketAddr>`, so the WebSocket upgrade can be per-IP rate limited
+    // (the SSH listener already rate limits at connection time).
+    axum::serve(
+        listener,
+        router(app).into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .await?;
     Ok(())
 }
 
@@ -124,8 +131,20 @@ async fn viewer_page(Path(_token): Path<String>) -> Html<&'static str> {
 async fn ws_stream(
     State(app): State<Arc<App>>,
     Path(token): Path<String>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
     ws: WebSocketUpgrade,
 ) -> Response {
+    // Per-IP rate limit on the upgrade (the same sliding window the SSH listener uses), so
+    // a holder of the RO token can't open unbounded live streams. Applied here, not on the
+    // viewer page's `/status` polling, so a normal browser session isn't throttled.
+    if !app.allow_connection(&peer.ip().to_string()) {
+        metrics::counter!("choom_rate_limited_total").increment(1);
+        return (
+            StatusCode::TOO_MANY_REQUESTS,
+            "rate limit exceeded, retry shortly",
+        )
+            .into_response();
+    }
     match app.lookup_token(&token) {
         // Any valid token may *view* (output-only); rw grants nothing extra on the web.
         Some((session, _mode)) => ws.on_upgrade(move |socket| stream_session(socket, session)),
@@ -140,10 +159,17 @@ async fn stream_session(socket: WebSocket, session: Arc<SessionShared>) {
         let st = session.state.lock().unwrap();
         (st.neg_cols, st.neg_rows)
     };
-    let (id, snapshot, mut rx) =
-        session.add_viewer(Mode::Ro, Transport::Web, "web".to_string(), cols, rows);
-
     let (mut tx, mut client_rx) = socket.split();
+    // The per-session viewer cap is enforced atomically inside `add_viewer` and shared with
+    // the SSH path; `None` means the session is already full, so this web viewer can't be
+    // turned into an unbounded resource amplifier — tell the browser and close.
+    let Some((id, snapshot, mut rx)) =
+        session.add_viewer(Mode::Ro, Transport::Web, "web".to_string(), cols, rows)
+    else {
+        let _ = tx.send(Message::text("session is full")).await;
+        let _ = tx.close().await;
+        return;
+    };
     let start = Instant::now();
 
     // asciinema-player's live WS driver wants a single "reset" message carrying the size,
@@ -190,7 +216,27 @@ async fn stream_session(socket: WebSocket, session: Arc<SessionShared>) {
                         break;
                     }
                 }
-                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
+                    // This viewer fell behind and output was dropped for it. Drain the
+                    // backlog and re-send a reset carrying the current screen, so the player
+                    // resyncs instead of rendering a corrupted view.
+                    while let Ok(_) | Err(tokio::sync::broadcast::error::TryRecvError::Lagged(_)) =
+                        rx.try_recv()
+                    {}
+                    let (snap, size) = {
+                        let st = session.state.lock().unwrap();
+                        (crate::render::snapshot(&st.vt), (st.neg_cols, st.neg_rows))
+                    };
+                    cur = size;
+                    let reset = asciicast::live_reset_line(
+                        size.0,
+                        size.1,
+                        &String::from_utf8_lossy(&snap),
+                    );
+                    if tx.send(Message::text(reset)).await.is_err() {
+                        break;
+                    }
+                }
                 Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
             },
             // Reading is required to observe a client close; all content is ignored.
@@ -314,12 +360,17 @@ async fn download_index(State(app): State<Arc<App>>) -> Response {
         return Html(DOWNLOAD_EMPTY_HTML).into_response();
     };
     let mut items = String::new();
-    if let Ok(entries) = std::fs::read_dir(dir) {
-        let mut names: Vec<String> = entries
-            .flatten()
-            .filter(|e| e.path().is_file())
-            .filter_map(|e| e.file_name().into_string().ok())
-            .collect();
+    // Use async dir iteration so a flood of `/download` can't stall axum's runtime threads
+    // (the listing is operator-controlled, but blocking I/O in a handler is still avoidable).
+    if let Ok(mut entries) = tokio::fs::read_dir(dir).await {
+        let mut names: Vec<String> = Vec::new();
+        while let Ok(Some(e)) = entries.next_entry().await {
+            if e.path().is_file() {
+                if let Ok(name) = e.file_name().into_string() {
+                    names.push(name);
+                }
+            }
+        }
         names.sort();
         for name in names {
             // The filename comes off the filesystem (operator-controlled, but still

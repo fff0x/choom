@@ -290,8 +290,12 @@ impl russh::server::Handler for Conn {
             Role::Viewer { mode, .. } => *mode,
             _ => unreachable!(),
         };
-        // Per-session viewer cap (public-relay hardening).
-        if sess.viewer_count() >= self.app.cfg.max_viewers {
+        // Per-session viewer cap (public-relay hardening). The cap is enforced atomically
+        // inside `add_viewer` (one lock, no TOCTOU) and shared with the web path; `None`
+        // means the session is already full.
+        let Some((id, snapshot, mut rx)) =
+            sess.add_viewer(mode, Transport::Ssh, self.peer_ip.clone(), v.cols, v.rows)
+        else {
             session.channel_success(channel)?;
             let handle = session.handle();
             tokio::spawn(async move {
@@ -302,9 +306,7 @@ impl russh::server::Handler for Conn {
             });
             warn!(sid = sess.sid, ip = %self.peer_ip, "viewer rejected: session full");
             return Ok(());
-        }
-        let (id, snapshot, mut rx) =
-            sess.add_viewer(mode, Transport::Ssh, self.peer_ip.clone(), v.cols, v.rows);
+        };
         v.id = Some(id);
         session.channel_success(channel)?;
         info!(sid = sess.sid, viewer = id, ip = %self.peer_ip, ?mode, "viewer joined");
@@ -331,7 +333,18 @@ impl russh::server::Handler for Conn {
                                 break;
                             }
                         }
-                        Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                        Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
+                            // This viewer fell behind and the broadcast dropped output for
+                            // it. Drain the remaining backlog and repaint from the current
+                            // screen, so it resyncs instead of staying corrupted.
+                            while let Ok(_) | Err(tokio::sync::broadcast::error::TryRecvError::Lagged(_)) =
+                                rx.try_recv()
+                            {}
+                            let snap = sess2.current_snapshot();
+                            if handle.data(channel, Bytes::from(snap)).await.is_err() {
+                                break;
+                            }
+                        }
                         Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
                     }
                 }
@@ -555,10 +568,16 @@ async fn host_loop(
             {
                 match app.find_by_reconnect(&id) {
                     Some(s) if s.owner_key == owner_key => {
-                        if let Some(t) = s.grace.lock().unwrap().take() {
-                            t.cancel();
+                        // Cancel the grace timer and mark connected **under the grace lock**,
+                        // so a grace timer firing at this instant (it re-checks `connected`
+                        // under the same lock) can't close a session that is resuming.
+                        {
+                            let mut grace = s.grace.lock().unwrap();
+                            if let Some(t) = grace.take() {
+                                t.cancel();
+                            }
+                            s.connected.store(true, Ordering::Relaxed);
                         }
-                        s.connected.store(true, Ordering::Relaxed);
                         s.set_to_host(to_host_tx.clone());
                         s.set_host_size(cols, rows);
                         let _ = to_host_tx
@@ -647,6 +666,10 @@ async fn host_loop(
     tokio::spawn(async move {
         tokio::select! {
             _ = tokio::time::sleep(Duration::from_secs(proto::GRACE_PERIOD_SECS)) => {
+                // Re-check `connected` under the grace lock: resume sets it true while
+                // holding the same lock, so this check-and-close is atomic w.r.t. a resume
+                // landing at the grace boundary (no session torn down mid-resume).
+                let _grace = s2.grace.lock().unwrap();
                 if !s2.connected.load(Ordering::Relaxed) {
                     info!(sid = s2.sid, "grace period expired; session closed");
                     s2.close();

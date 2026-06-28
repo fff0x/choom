@@ -124,9 +124,13 @@ pub async fn serve_on(cfg: Config, listener: TcpListener) -> anyhow::Result<()> 
     // Recording retention GC (hourly) when storage is enabled.
     if let Some(dir) = app.cfg.record_dir.clone() {
         let (age, mb) = (app.cfg.record_max_age_days, app.cfg.record_max_mb);
+        let gc_app = app.clone();
         tokio::spawn(async move {
             loop {
                 recorder::gc(&dir, age, mb);
+                // Drop registry entries for files the GC (or anything else) removed, so the
+                // recordings map can't grow unbounded over the process lifetime.
+                gc_app.forget_missing_recordings();
                 tokio::time::sleep(Duration::from_secs(3600)).await;
             }
         });

@@ -86,6 +86,20 @@ fn now_unix() -> u64 {
         .unwrap_or(0)
 }
 
+/// Length of the longest prefix of `buf` safe to commit to the screen model now: everything
+/// except a trailing *incomplete* multibyte UTF-8 sequence, which must wait for its
+/// continuation bytes (the next `Output` frame). Genuinely invalid bytes mid-stream are
+/// committed (and rendered lossily) rather than held back, so binary output never stalls.
+fn utf8_commit_len(buf: &[u8]) -> usize {
+    match std::str::from_utf8(buf) {
+        Ok(_) => buf.len(),
+        Err(e) => match e.error_len() {
+            None => e.valid_up_to(), // truncated tail — hold it back for the next frame
+            Some(_) => buf.len(),    // real invalid bytes — commit (lossy), don't stall
+        },
+    }
+}
+
 /// One viewer in the roster.
 #[derive(Clone, Debug)]
 pub struct Viewer {
@@ -124,6 +138,10 @@ pub struct SessionState {
     pub neg_rows: u16,
     viewers: HashMap<u64, Viewer>,
     next_viewer_id: u64,
+    /// Trailing bytes of an incomplete multibyte UTF-8 sequence held back from the last
+    /// [`SessionShared::on_output`] until its continuation arrives (bounded to ≤3 bytes).
+    /// Keeps a char split across two `Output` frames from decoding to `U+FFFD` in `vt`.
+    utf8_carry: Vec<u8>,
 }
 
 impl SessionState {
@@ -150,6 +168,10 @@ impl SessionState {
     }
 }
 
+/// What [`SessionShared::add_viewer`] hands back on success: the new viewer's id, the
+/// join snapshot to send first, and a live-output receiver subscribed under the same lock.
+pub type ViewerHandle = (u64, Vec<u8>, broadcast::Receiver<Arc<[u8]>>);
+
 /// Shared, cloneable handle to a session.
 pub struct SessionShared {
     /// Short numeric id for logs (not a secret).
@@ -165,6 +187,9 @@ pub struct SessionShared {
     /// Read-only session: the read-write token was never handed out (its registry entry,
     /// if any, grants only read), and the share banner advertises no RW link.
     pub read_only: bool,
+    /// Per-session viewer cap (copied from `Config` at creation), enforced atomically in
+    /// [`SessionShared::add_viewer`] so every transport (SSH + web) shares one hard limit.
+    pub max_viewers: usize,
     /// Outbound frames to the host (viewer input + control). Swapped on reconnect so
     /// input flows to the *current* host connection.
     to_host: Mutex<mpsc::Sender<Frame>>,
@@ -197,6 +222,14 @@ impl SessionShared {
         *self.to_host.lock().unwrap() = sender;
     }
 
+    /// Render the current screen as an ANSI repaint (the same bytes a joining viewer gets).
+    /// Used to resync a single viewer that fell behind the live broadcast (a `Lagged` event)
+    /// instead of leaving it permanently desynced.
+    pub fn current_snapshot(&self) -> Vec<u8> {
+        let st = self.state.lock().unwrap();
+        crate::render::snapshot(&st.vt)
+    }
+
     /// Re-broadcast the current screen to viewers (used after a host resumes).
     pub fn repaint_viewers(&self) {
         let snapshot = {
@@ -216,16 +249,38 @@ impl SessionShared {
     /// concurrently sees each output chunk exactly once (snapshot xor live).
     pub fn on_output(&self, bytes: &[u8]) {
         let mut st = self.state.lock().unwrap();
-        // avt models UTF-8 text; the live path stays byte-exact.
-        let chunk = String::from_utf8_lossy(bytes);
-        st.vt.feed_str(&chunk);
-        let _ = self.output_tx.send(Arc::from(bytes));
+        // Reassemble across frame boundaries: a multibyte UTF-8 char split between two
+        // `Output` frames must not decode to `U+FFFD` in the screen model. Prepend any
+        // bytes held back last time, commit the maximal prefix that doesn't end
+        // mid-character, and carry the (≤3-byte) trailing incomplete sequence forward. The
+        // *committed prefix* is what we broadcast raw, so avt, the SSH live path, the
+        // recorder and the web view all see byte streams that never split a char — snapshot,
+        // live, and recording stay in agreement.
+        let committed: Arc<[u8]> = if st.utf8_carry.is_empty() {
+            let split = utf8_commit_len(bytes);
+            st.utf8_carry.extend_from_slice(&bytes[split..]);
+            Arc::from(&bytes[..split])
+        } else {
+            let mut combined = std::mem::take(&mut st.utf8_carry);
+            combined.extend_from_slice(bytes);
+            let split = utf8_commit_len(&combined);
+            st.utf8_carry.extend_from_slice(&combined[split..]);
+            Arc::from(&combined[..split])
+        };
+        if !committed.is_empty() {
+            st.vt.feed_str(&String::from_utf8_lossy(&committed));
+            let _ = self.output_tx.send(committed);
+        }
         metrics::counter!("choom_output_bytes_total").increment(bytes.len() as u64);
     }
 
     /// Add a viewer to the roster. Returns its id, a snapshot of the current screen,
     /// and a live-output receiver — subscribed under the same lock as the snapshot so
     /// no output is missed or duplicated. Renegotiates the size afterwards.
+    ///
+    /// The per-session viewer cap is enforced **here**, under the same lock as the
+    /// insert, so it holds atomically for every transport (SSH + web) with no TOCTOU
+    /// window. Returns `None` when the session is already at `max_viewers`.
     pub fn add_viewer(
         &self,
         mode: Mode,
@@ -233,9 +288,12 @@ impl SessionShared {
         ip: String,
         cols: u16,
         rows: u16,
-    ) -> (u64, Vec<u8>, broadcast::Receiver<Arc<[u8]>>) {
+    ) -> Option<ViewerHandle> {
         let (id, snapshot, rx, client, resize) = {
             let mut st = self.state.lock().unwrap();
+            if st.viewers.len() >= self.max_viewers {
+                return None;
+            }
             let id = st.next_viewer_id;
             st.next_viewer_id += 1;
             let viewer = Viewer {
@@ -260,7 +318,7 @@ impl SessionShared {
         }
         metrics::counter!("choom_viewers_joined_total").increment(1);
         metrics::gauge!("choom_viewers_active").increment(1.0);
-        (id, snapshot, rx)
+        Some((id, snapshot, rx))
     }
 
     /// Remove a viewer; renegotiates (a departing RW viewer may grow the host again).
@@ -429,6 +487,16 @@ impl App {
         self.recordings.lock().unwrap().get(token).cloned()
     }
 
+    /// Drop registry entries whose `.cast` file no longer exists on disk. Entries are kept
+    /// past session end so the web download still works, but they were otherwise never
+    /// removed — so the map grew unbounded over the process lifetime (one entry per token
+    /// per recorded session, forever). Called from the hourly retention sweep after
+    /// [`recorder::gc`](crate::recorder::gc) prunes files, and also catches externally
+    /// deleted recordings.
+    pub fn forget_missing_recordings(&self) {
+        self.recordings.lock().unwrap().retain(|_, path| path.exists());
+    }
+
     /// Is `key` allowed to host (default key or an authorized_keys entry)? Compares the
     /// key material only — wire keys carry no comment, unlike `authorized_keys` lines.
     pub fn host_key_allowed(&self, key: &russh::keys::PublicKey) -> bool {
@@ -497,6 +565,7 @@ impl App {
             owner_key,
             name: opts.name,
             read_only: opts.read_only,
+            max_viewers: self.cfg.max_viewers,
             to_host: Mutex::new(to_host),
             output_tx,
             cancel: CancellationToken::new(),
@@ -511,6 +580,7 @@ impl App {
                 neg_rows: r,
                 viewers: HashMap::new(),
                 next_viewer_id: 1,
+                utf8_carry: Vec::new(),
             }),
         });
         sessions.insert(
@@ -582,5 +652,80 @@ impl App {
             entry.session.close();
         }
         sessions.clear();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_session() -> Arc<SessionShared> {
+        let app = App::new(Config::default(), "SHA256:test".into());
+        let (tx, _rx) = mpsc::channel(16);
+        app.create_session("owner".into(), 80, 24, tx, SessionOpts::default())
+            .unwrap()
+    }
+
+    fn snapshot_text(s: &SessionShared) -> String {
+        let st = s.state.lock().unwrap();
+        String::from_utf8(crate::render::snapshot(&st.vt)).unwrap()
+    }
+
+    #[test]
+    fn utf8_commit_len_holds_back_only_truncated_tail() {
+        assert_eq!(utf8_commit_len(b"abc"), 3); // pure ASCII commits whole
+        assert_eq!(utf8_commit_len(&[0xC3]), 0); // lone 2-byte lead held back
+        assert_eq!(utf8_commit_len(b"ab\xC3"), 2); // commit ascii, hold the lead
+        assert_eq!(utf8_commit_len(b"ab\xC3\xA9"), 4); // complete "é" commits
+        assert_eq!(utf8_commit_len(&[0xE4, 0xB8]), 0); // truncated 3-byte "中"
+        assert_eq!(utf8_commit_len(&[0xF0, 0x9F, 0x98]), 0); // truncated 4-byte emoji
+        assert_eq!(utf8_commit_len(&[0xFF, 0xFE]), 2); // real invalid bytes commit (lossy)
+    }
+
+    #[test]
+    fn on_output_reassembles_char_split_across_frames() {
+        let s = test_session();
+        // "é" (0xC3 0xA9) and "中" (0xE4 0xB8 0xAD), each split across two frames.
+        s.on_output(&[0xC3]);
+        s.on_output(&[0xA9, 0xE4, 0xB8]);
+        s.on_output(&[0xAD]);
+        let snap = snapshot_text(&s);
+        assert!(snap.contains('é'), "expected reassembled é, got {snap:?}");
+        assert!(snap.contains('中'), "expected reassembled 中, got {snap:?}");
+        assert!(
+            !snap.contains('\u{FFFD}'),
+            "no replacement char expected, got {snap:?}"
+        );
+    }
+
+    #[test]
+    fn on_output_commits_invalid_bytes_without_stalling() {
+        let s = test_session();
+        s.on_output(&[b'x', 0xFF, b'y']);
+        let snap = snapshot_text(&s);
+        assert!(snap.contains('x') && snap.contains('y'), "got {snap:?}");
+    }
+
+    #[test]
+    fn add_viewer_enforces_cap() {
+        let app = App::new(
+            Config {
+                max_viewers: 1,
+                ..Config::default()
+            },
+            "SHA256:test".into(),
+        );
+        let (tx, _rx) = mpsc::channel(16);
+        let s = app
+            .create_session("owner".into(), 80, 24, tx, SessionOpts::default())
+            .unwrap();
+        assert!(s
+            .add_viewer(Mode::Ro, Transport::Web, "a".into(), 80, 24)
+            .is_some());
+        assert!(
+            s.add_viewer(Mode::Ro, Transport::Web, "b".into(), 80, 24)
+                .is_none(),
+            "second viewer must be rejected at the cap"
+        );
     }
 }
