@@ -3,6 +3,16 @@
 Notable changes, newest first. [Keep a Changelog](https://keepachangelog.com/) /
 [SemVer](https://semver.org/).
 
+## [2.4.1] - 2026-06-29
+
+### Added
+
+- **`--shell` now accepts a full command, not just an executable path.** It is split into a
+  program and arguments with POSIX quoting, so the host can share a persistent **tmux**
+  session — e.g. `choom host --shell 'tmux new-session -A -s choom'`. A bare path (including
+  `$SHELL` and the `/bin/sh` fallback) behaves exactly as before. See the README for the
+  host/viewer tmux walkthrough.
+
 ## [2.4.0] - 2026-06-28
 
 ### Security

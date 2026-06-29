@@ -43,7 +43,15 @@ fn host_exits_promptly_when_shell_exits() {
 
     // --- relay ---
     let mut relay = Command::new(bin)
-        .args(["server", "--ssh-addr", &format!("127.0.0.1:{port}"), "-H", "127.0.0.1", "-p", port])
+        .args([
+            "server",
+            "--ssh-addr",
+            &format!("127.0.0.1:{port}"),
+            "-H",
+            "127.0.0.1",
+            "-p",
+            port,
+        ])
         .env("RUST_LOG", "warn")
         .stdout(Stdio::null())
         .stderr(Stdio::null())

@@ -139,6 +139,47 @@ Full design: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
   everyone sees the whole screen, so the host's shell repaints (and its cursor moves)
   when a smaller read-write viewer joins. Read-only/web viewers never resize the host.
 
+## Persistent sessions with tmux
+
+`--shell` takes a full command (POSIX quoting), not just a path — so the host can
+share a **tmux** session instead of a bare shell. choom still does the fan-out and the
+size negotiation; tmux adds shell-level persistence on top, so the work survives a host
+crash or a network drop and you reattach where you left off.
+
+**Host side** — attach-or-create a named session and share it:
+
+```bash
+# -A on `new-session` attaches if `choom` already exists, else creates it.
+choom host --shell 'tmux new-session -A -s choom'
+```
+
+If the **relay link** drops, choom reconnects automatically (the shell never noticed).
+If **`choom host` itself** dies (crash, closed laptop), the shell keeps running inside
+the detached tmux session — just run the same command again to reattach and re-share.
+
+**Viewer side** — nothing changes. Viewers connect with plain `ssh` (or `choom view`)
+using the printed token; they see the tmux session *through* the relay and do **not**
+run tmux themselves. A read-write viewer's keystrokes reach the tmux client, so the
+tmux prefix (`Ctrl-b` by default) works for them; read-only/web viewers can only watch.
+
+```bash
+ssh -p 2200 <token>@your.relay      # or: choom view <token>@your.relay
+```
+
+**Sizing** — choom presents tmux a **single** client at the negotiated size (smallest
+read-write viewer), so there is no per-client size war inside tmux. If you detach and
+later reattach at a different size, tell tmux to follow the current client:
+
+```tmux
+# ~/.tmux.conf
+setw -g window-size latest
+setw -g aggressive-resize on
+```
+
+> Reattaching to the same tmux session **out-of-band** (a separate `tmux attach` outside
+> choom) adds another client whose size then also constrains the window — within choom
+> alone this never happens, since only the one host PTY is attached.
+
 ## CLI
 
 `choom <server|host|view|clients>`. Every flag also reads an env var and can come from a

@@ -23,6 +23,9 @@ serde = { workspace = true }
 serde_json.workspace = true
 pty-process = { version = "0.5.3", features = ["async"] }
 rustix = { version = "1", features = ["termios", "stdio"] }
+# Split `--shell` into a program + arguments with POSIX quoting, so it can carry
+# flags (e.g. `tmux new-session -A -s choom`) instead of a bare executable path.
+shlex = "2"
 
 [dev-dependencies]
 choom-server = { workspace = true }

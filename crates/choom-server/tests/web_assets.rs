@@ -136,8 +136,8 @@ async fn download_file_whitelists_and_streams() {
     // URI characters are percent-encoded here; axum decodes them back before the handler,
     // so it is the filename whitelist (not the HTTP layer) that rejects them.
     for bad in [
-        "/download/bad%20name.bin", // space
-        "/download/evil%22%3Bdrop", // `";`
+        "/download/bad%20name.bin",         // space
+        "/download/evil%22%3Bdrop",         // `";`
         "/download/x%0d%0aSet-Cookie:%20y", // CR/LF header injection attempt
         "/download/..",
         "/download/.",
@@ -220,8 +220,14 @@ async fn read_only_session_downgrades_rw_token() {
 
     assert!(session.read_only);
     assert_eq!(session.name.as_deref(), Some("demo"));
-    assert!(matches!(app.lookup_token(&session.ro_token), Some((_, Mode::Ro))));
-    assert!(matches!(app.lookup_token(&session.rw_token), Some((_, Mode::Ro))));
+    assert!(matches!(
+        app.lookup_token(&session.ro_token),
+        Some((_, Mode::Ro))
+    ));
+    assert!(matches!(
+        app.lookup_token(&session.rw_token),
+        Some((_, Mode::Ro))
+    ));
 }
 
 /// The viewer page must start the player with `autoPlay: true`. Without it the
@@ -281,7 +287,10 @@ async fn viewer_page_uses_status_endpoint() {
         .await
         .unwrap();
     let html = String::from_utf8_lossy(&body);
-    assert!(html.contains(r#"id="dl""#), "viewer page needs the download button");
+    assert!(
+        html.contains(r#"id="dl""#),
+        "viewer page needs the download button"
+    );
     assert!(
         html.contains("/status"),
         "viewer page must read /status to decide live vs replay"
@@ -300,7 +309,10 @@ async fn status_reports_live_and_recording() {
 
     // Unknown token: neither live nor recorded.
     let body = body_string(get(&app, "/s/nope/status").await).await;
-    assert!(body.contains("\"live\":false") && body.contains("\"recording\":false"), "{body}");
+    assert!(
+        body.contains("\"live\":false") && body.contains("\"recording\":false"),
+        "{body}"
+    );
 
     // Live session: live=true, recording=false (no record_dir).
     let (to_host, _rx) = tokio::sync::mpsc::channel(4);
@@ -347,7 +359,10 @@ async fn recording_downloadable_after_session_ends() {
 
     // End the live session, then the download must still work.
     app.remove_session(&session);
-    assert!(app.lookup_token(&ro).is_none(), "session token gone after end");
+    assert!(
+        app.lookup_token(&ro).is_none(),
+        "session token gone after end"
+    );
     assert_eq!(
         get(&app, &cast).await.status(),
         StatusCode::OK,

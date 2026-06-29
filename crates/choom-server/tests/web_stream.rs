@@ -100,9 +100,15 @@ async fn web_stream_emits_asciicast() {
     // live (not a finite recording that ends + shows a replay button).
     let reset = next_text(&mut ws).await.expect("reset");
     let rv: serde_json::Value = serde_json::from_str(&reset).expect("reset json");
-    assert_eq!(rv["cols"], 80, "expected live {{cols,rows,...}} reset, got {reset}");
+    assert_eq!(
+        rv["cols"], 80,
+        "expected live {{cols,rows,...}} reset, got {reset}"
+    );
     assert_eq!(rv["rows"], 24);
-    assert!(rv["time"].is_number(), "reset must carry a numeric stream clock");
+    assert!(
+        rv["time"].is_number(),
+        "reset must carry a numeric stream clock"
+    );
     assert!(
         rv["init"].as_str().unwrap_or("").contains("web-marker-123"),
         "reset `init` must carry the current screen snapshot"
@@ -124,7 +130,10 @@ async fn web_stream_emits_asciicast() {
             break;
         }
     }
-    assert!(found, "live output must stream as [t,\"o\",data] events after the reset");
+    assert!(
+        found,
+        "live output must stream as [t,\"o\",data] events after the reset"
+    );
 }
 
 async fn next_text<S>(ws: &mut S) -> Option<String>

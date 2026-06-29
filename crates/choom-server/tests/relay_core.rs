@@ -240,7 +240,10 @@ async fn viewer_authenticates_with_none() {
         .await
         .unwrap();
     let res = bad.authenticate_none("not-a-real-token").await.unwrap();
-    assert!(!res.success(), "unknown token must fail `none` authentication");
+    assert!(
+        !res.success(),
+        "unknown token must fail `none` authentication"
+    );
 }
 
 /// When the host's shell exits it sends `Control::Bye`; the relay must then detach

@@ -185,7 +185,10 @@ pub enum Control {
     /// token (the read-write link is never issued); `name` is a human label shown on the
     /// host, in logs, and to `choom clients`. Appended last to keep postcard variant
     /// indices stable for older peers.
-    SessionOpts { name: Option<String>, read_only: bool },
+    SessionOpts {
+        name: Option<String>,
+        read_only: bool,
+    },
 }
 
 /// Payload of [`Control::Ready`] — everything the host needs to print share links.

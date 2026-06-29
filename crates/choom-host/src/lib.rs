@@ -48,7 +48,8 @@ pub struct HostConfig {
     pub server: String,
     /// Relay SSH port.
     pub port: u16,
-    /// Shell to run; `None` -> `$SHELL` -> `/bin/sh`.
+    /// Shell command to run; `None` -> `$SHELL` -> `/bin/sh`. May carry arguments with
+    /// POSIX quoting (e.g. `tmux new-session -A -s choom`), not just a bare path.
     pub shell: Option<String>,
     /// Ask the relay to record this session.
     pub record: bool,
@@ -139,6 +140,21 @@ fn resolve_key(identity: Option<&std::path::Path>, use_default_key: bool) -> Res
         return PrivateKey::from_openssh(DEFAULT_ID).context("parse bundled default key");
     }
     persisted_key()
+}
+
+/// Split a `--shell` command into its program and arguments, honouring POSIX-style
+/// quoting (`tmux new-session -A -s 'my work'` → one quoted argument). A bare path —
+/// the common case, including `$SHELL` and the `/bin/sh` fallback — yields just the
+/// program with an empty argument list, so existing single-binary invocations are
+/// unchanged. Errors on unbalanced quotes or an empty command.
+fn split_shell(spec: &str) -> Result<(String, Vec<String>)> {
+    let mut parts = shlex::split(spec)
+        .with_context(|| format!("invalid shell command {spec:?} (unbalanced quotes?)"))?
+        .into_iter();
+    let program = parts
+        .next()
+        .with_context(|| format!("empty shell command {spec:?}"))?;
+    Ok((program, parts.collect()))
 }
 
 fn persisted_key() -> Result<PrivateKey> {
@@ -318,21 +334,27 @@ pub async fn run_host_for_test(
 }
 
 async fn run_host(cfg: HostConfig, hooks: Hooks) -> Result<()> {
-    let shell = cfg
+    let shell_spec = cfg
         .shell
         .clone()
         .or_else(|| std::env::var("SHELL").ok())
         .unwrap_or_else(|| "/bin/sh".to_string());
+    // `--shell` may carry arguments (e.g. `tmux new-session -A -s choom`), so split it
+    // into a program + argv with POSIX quoting instead of execing a binary literally
+    // named with spaces. A bare path (the common case, incl. `$SHELL`) yields just the
+    // program with no arguments.
+    let (program, shell_args) = split_shell(&shell_spec)?;
 
     // --- local PTY + shell ---
     let (init_cols, init_rows) = term::initial_size(hooks.attach_terminal);
     let (pty, pts) = pty_process::open().context("open pty")?;
     pty.resize(Size::new(init_rows, init_cols)).ok();
-    let child = pty_process::Command::new(&shell)
+    let child = pty_process::Command::new(&program)
+        .args(&shell_args)
         // SIGKILL the shell if this process tears down without an orderly exit.
         .kill_on_drop(true)
         .spawn(pts)
-        .with_context(|| format!("spawn shell {shell:?}"))?;
+        .with_context(|| format!("spawn shell {program:?}"))?;
     let (mut pty_read, pty_write) = pty.into_split();
 
     // Watch the shell in a dedicated task and cancel `shell_gone` when it exits. This is
@@ -873,10 +895,7 @@ pub fn run_view(
 fn view_args(target: &str, server: Option<&str>, port: Option<u16>) -> Result<Vec<String>> {
     let (token, host) = match target.split_once('@') {
         Some((t, h)) => (t, h.to_string()),
-        None => (
-            target,
-            server.unwrap_or(proto::DEFAULT_SERVER).to_string(),
-        ),
+        None => (target, server.unwrap_or(proto::DEFAULT_SERVER).to_string()),
     };
     anyhow::ensure!(
         !token.is_empty() && !host.is_empty(),
@@ -1005,10 +1024,12 @@ fn print_roster(list: &[Client]) {
         .unwrap_or(0);
     // Summary line first: total + a breakdown by transport, so you see the shape at a
     // glance before reading the table.
-    let (ssh, web) = list.iter().fold((0u32, 0u32), |(s, w), c| match c.transport {
-        Transport::Ssh => (s + 1, w),
-        Transport::Web => (s, w + 1),
-    });
+    let (ssh, web) = list
+        .iter()
+        .fold((0u32, 0u32), |(s, w), c| match c.transport {
+            Transport::Ssh => (s + 1, w),
+            Transport::Web => (s, w + 1),
+        });
     let noun = if list.len() == 1 { "viewer" } else { "viewers" };
     println!("{} {noun} connected ({ssh} ssh, {web} web)\n", list.len());
     println!(
@@ -1081,6 +1102,45 @@ mod tests {
         assert_eq!(humanize_secs(45), "45s");
         assert_eq!(humanize_secs(312), "5m12s"); // 5*60 + 12
         assert_eq!(humanize_secs(3720), "1h02m"); // 1*3600 + 2*60
+    }
+
+    #[test]
+    fn split_shell_handles_bare_paths_and_argv() {
+        // A bare path (the common case) -> program only, no args (unchanged behaviour).
+        assert_eq!(
+            split_shell("/bin/sh").unwrap(),
+            ("/bin/sh".to_string(), vec![])
+        );
+        // A command with flags -> program + each flag as a separate argv entry.
+        assert_eq!(
+            split_shell("tmux new-session -A -s choom").unwrap(),
+            (
+                "tmux".to_string(),
+                vec![
+                    "new-session".to_string(),
+                    "-A".to_string(),
+                    "-s".to_string(),
+                    "choom".to_string()
+                ]
+            )
+        );
+        // Quoting keeps a spaced argument intact (a session name with a space).
+        assert_eq!(
+            split_shell("tmux new-session -A -s 'my work'").unwrap(),
+            (
+                "tmux".to_string(),
+                vec![
+                    "new-session".to_string(),
+                    "-A".to_string(),
+                    "-s".to_string(),
+                    "my work".to_string()
+                ]
+            )
+        );
+        // Unbalanced quotes and an empty command are rejected, not silently mangled.
+        assert!(split_shell("tmux 'unbalanced").is_err());
+        assert!(split_shell("").is_err());
+        assert!(split_shell("   ").is_err());
     }
 
     #[test]

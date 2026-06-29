@@ -494,7 +494,10 @@ impl App {
     /// [`recorder::gc`](crate::recorder::gc) prunes files, and also catches externally
     /// deleted recordings.
     pub fn forget_missing_recordings(&self) {
-        self.recordings.lock().unwrap().retain(|_, path| path.exists());
+        self.recordings
+            .lock()
+            .unwrap()
+            .retain(|_, path| path.exists());
     }
 
     /// Is `key` allowed to host (default key or an authorized_keys entry)? Compares the

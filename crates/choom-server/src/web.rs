@@ -281,13 +281,7 @@ async fn cast_download(
     }
     // Stream the file instead of reading it whole into memory: a recording has no per-file
     // size cap, so a full read would let many parallel `/cast` requests exhaust RAM.
-    stream_file(
-        &app,
-        &path,
-        "application/x-asciicast",
-        Some("session.cast"),
-    )
-    .await
+    stream_file(&app, &path, "application/x-asciicast", Some("session.cast")).await
 }
 
 /// Stream a file from disk to the client (never read whole into memory), holding a download
@@ -404,7 +398,13 @@ async fn download_file(State(app): State<Arc<App>>, Path(file): Path<String>) ->
         return (StatusCode::BAD_REQUEST, "bad filename").into_response();
     }
     // Stream (don't read whole into memory) so large binaries can't be a memory amplifier.
-    stream_file(&app, &dir.join(&file), "application/octet-stream", Some(&file)).await
+    stream_file(
+        &app,
+        &dir.join(&file),
+        "application/octet-stream",
+        Some(&file),
+    )
+    .await
 }
 
 /// HTML-escape the five significant characters so a string is safe in element text and in

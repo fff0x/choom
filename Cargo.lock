@@ -363,7 +363,7 @@ dependencies = [
 
 [[package]]
 name = "choom-cli"
-version = "2.4.0"
+version = "2.4.1"
 dependencies = [
  "anyhow",
  "choom-host",
@@ -377,7 +377,7 @@ dependencies = [
 
 [[package]]
 name = "choom-host"
-version = "2.4.0"
+version = "2.4.1"
 dependencies = [
  "anyhow",
  "choom-proto",
@@ -389,6 +389,7 @@ dependencies = [
  "rustix",
  "serde",
  "serde_json",
+ "shlex",
  "tokio",
  "tokio-util",
  "tracing",
@@ -397,7 +398,7 @@ dependencies = [
 
 [[package]]
 name = "choom-proto"
-version = "2.4.0"
+version = "2.4.1"
 dependencies = [
  "base64",
  "bytes",
@@ -410,7 +411,7 @@ dependencies = [
 
 [[package]]
 name = "choom-server"
-version = "2.4.0"
+version = "2.4.1"
 dependencies = [
  "anyhow",
  "avt",
@@ -3154,7 +3155,7 @@ dependencies = [
 
 [[package]]
 name = "xtask"
-version = "2.4.0"
+version = "2.4.1"
 dependencies = [
  "anyhow",
  "choom-cli",

@@ -242,7 +242,8 @@ struct HostArgs {
     /// Relay SSH port [default: 2200].
     #[arg(long, short = 'p', env = "CHOOM_PORT")]
     port: Option<u16>,
-    /// Shell to run (defaults to $SHELL, then /bin/sh).
+    /// Shell command to run (defaults to $SHELL, then /bin/sh). May include arguments,
+    /// e.g. --shell 'tmux new-session -A -s choom' to share a persistent tmux session.
     #[arg(long)]
     shell: Option<String>,
     /// Ask the relay to record this session.
@@ -300,7 +301,10 @@ fn resolve_host(a: HostArgs) -> Result<HostConfig> {
         .server
         .or(f.server)
         .unwrap_or_else(|| proto::DEFAULT_SERVER.to_string());
-    let port = a.port.or(f.port).unwrap_or_else(|| proto::default_port_for(&server));
+    let port = a
+        .port
+        .or(f.port)
+        .unwrap_or_else(|| proto::default_port_for(&server));
     Ok(HostConfig {
         server,
         port,
@@ -435,7 +439,15 @@ mod tests {
     #[test]
     fn host_cli_flags_win() {
         let c = host(&[
-            "choom", "host", "-s", "relay.example.com", "-p", "2020", "--detach", "-v", "--record",
+            "choom",
+            "host",
+            "-s",
+            "relay.example.com",
+            "-p",
+            "2020",
+            "--detach",
+            "-v",
+            "--record",
             "--no-default-key",
         ]);
         assert_eq!(c.server, "relay.example.com");
@@ -456,7 +468,13 @@ mod tests {
         assert!(!d.record_all);
 
         let c = server(&[
-            "choom", "server", "-H", "r.example", "-w", "0.0.0.0:8080", "--no-default-key",
+            "choom",
+            "server",
+            "-H",
+            "r.example",
+            "-w",
+            "0.0.0.0:8080",
+            "--no-default-key",
             "--record-all",
         ]);
         assert_eq!(c.advertise_host, "r.example");
@@ -467,10 +485,7 @@ mod tests {
 
     #[test]
     fn precedence_cli_over_file_over_default() {
-        let f = tmp_yaml(
-            "prec",
-            "server: file-relay\nport: 2222\nverbose: true\n",
-        );
+        let f = tmp_yaml("prec", "server: file-relay\nport: 2222\nverbose: true\n");
         let fp = f.to_str().unwrap();
 
         // File supplies values where the CLI is silent.
