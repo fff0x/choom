@@ -1,0 +1,89 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: relay
+  labels:
+    app.kubernetes.io/name: relay
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: relay
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: relay
+    spec:
+      # choom only relays bytes; it never spawns a shell, so it runs unprivileged.
+      securityContext:
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        runAsNonRoot: true
+      containers:
+        - name: relay
+          # Pin a real tag (e.g. :v2.4.0) for production instead of :latest.
+          image: oci.this-is-fine.io/choom/relay:latest
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          env:
+            - name: CHOOM_HOST           # hostname advertised in the share links
+              value: "choom.<domain.tld>" # >>> change to your hostname
+            - name: CHOOM_SSH_ADDR       # SSH listen address inside the pod
+              value: "0.0.0.0:2200"
+            - name: CHOOM_PORT           # SSH port advertised in links (display only)
+              value: "22"
+            - name: CHOOM_WEB_ADDR       # web view bind
+              value: "0.0.0.0:8080"
+            - name: CHOOM_WEB_URL        # public web URL
+              value: "https://choom.<domain.tld>" # >>> change to your hostname
+            - name: CHOOM_METRICS_ADDR   # Prometheus endpoint (in-cluster only)
+              value: "0.0.0.0:9090"
+            - name: CHOOM_LOG_FORMAT
+              value: "json"
+            - name: CHOOM_HOST_KEY       # stable SSH host key on the PVC
+              value: "/data/host_key"
+            - name: CHOOM_RECORD_DIR     # session recordings on the PVC
+              value: "/data/recordings"
+          ports:
+            - name: ssh
+              containerPort: 2200
+              protocol: TCP
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+            - name: metrics
+              containerPort: 9090
+              protocol: TCP
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: ssh
+            initialDelaySeconds: 15
+            periodSeconds: 30
+          volumeMounts:
+            - name: storage
+              mountPath: "/data"
+          resources:
+            requests:
+              memory: "64Mi"
+              cpu: "50m"
+            limits:
+              memory: "256Mi"
+              cpu: "500m"
+      volumes:
+        - name: storage
+          persistentVolumeClaim:
+            claimName: relay

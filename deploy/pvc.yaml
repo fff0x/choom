@@ -1,0 +1,16 @@
+---
+# Holds the persistent SSH host key (stable fingerprint across restarts) and
+# session recordings. Uses the cluster default StorageClass — set spec.storageClassName
+# explicitly if you need a specific one.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: relay
+  labels:
+    app.kubernetes.io/name: relay
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi

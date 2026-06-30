@@ -1,0 +1,39 @@
+---
+# SSH ingress for the relay. LoadBalancer gives clients a routable host:port for
+# `ssh <token>@<lb-ip> -p 2200`. Swap to ClusterIP + an Ingress/Gateway TCPRoute if
+# you terminate SSH elsewhere.
+apiVersion: v1
+kind: Service
+metadata:
+  name: relay-ssh
+  labels:
+    app.kubernetes.io/name: relay
+spec:
+  type: LoadBalancer
+  selector:
+    app.kubernetes.io/name: relay
+  ports:
+    - name: ssh
+      port: 2200
+      targetPort: ssh
+      protocol: TCP
+---
+# Web view + in-cluster metrics. Put an Ingress/HTTPRoute in front of port 8080 for
+# the public web UI; scrape port 9090 from Prometheus in-cluster.
+apiVersion: v1
+kind: Service
+metadata:
+  name: relay
+  labels:
+    app.kubernetes.io/name: relay
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: relay
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+    - name: metrics
+      port: 9090
+      targetPort: metrics
