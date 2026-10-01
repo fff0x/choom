@@ -239,7 +239,7 @@ struct HostArgs {
     /// Relay hostname [default: choom.sh].
     #[arg(long, short = 's', env = "CHOOM_SERVER")]
     server: Option<String>,
-    /// Relay SSH port [default: 2200].
+    /// Relay SSH port [default: 22 for choom.sh, else 2200].
     #[arg(long, short = 'p', env = "CHOOM_PORT")]
     port: Option<u16>,
     /// Shell command to run (defaults to $SHELL, then /bin/sh). May include arguments,
