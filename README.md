@@ -1,12 +1,5 @@
 # choom
 
-> **Canonical repository** — development happens on Radicle:
-> [`rad:zc53mExb6ttoNQXMMZh9xxn5n2HH`](https://app.radicle.xyz/nodes/seed.this-is-fine.io/rad:zc53mExb6ttoNQXMMZh9xxn5n2HH)
-> (clone with `git clone rad://zc53mExb6ttoNQXMMZh9xxn5n2HH`).
->
-> This GitHub repository is a **read-only mirror** synced hourly;
-> patches, issues and releases live on Radicle.
-
 [![CI](https://img.shields.io/endpoint?url=https%3A%2F%2Fci.this-is-fine.io%2Fbadge%2Fchoom.json)](https://ci.this-is-fine.io/)
 
 **Minimal SSH terminal sharing relay.** A host shares its local shell through a
